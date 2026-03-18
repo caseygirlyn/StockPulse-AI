@@ -2,7 +2,7 @@
 
 **StockPulse AI** is a professional-grade, real-time stock analysis and market intelligence platform. Powered by Google's Gemini 3.1 Pro, it provides institutional-level technical analysis, news sentiment, and actionable investment insights in seconds.
 
-![StockPulse Banner](https://picsum.photos/seed/finance/1200/400)
+![StockPulse Banner](https://girlyn.com//images/StockPulseAI.gif)
 
 ## ✨ Key Features
 
