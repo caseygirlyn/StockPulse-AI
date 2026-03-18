@@ -135,6 +135,9 @@ export default function App() {
     if (!data || loading) return;
 
     const pollInterval = setInterval(async () => {
+      // Don't poll if the tab is hidden to save API quota
+      if (document.hidden || !data || loading) return;
+      
       setIsUpdating(true);
       try {
         const { currentPrice } = await getLatestPrice(data.ticker, currency);
@@ -142,10 +145,7 @@ export default function App() {
         setData(prev => {
           if (!prev) return null;
           
-          // Update current price
           const newData = { ...prev, currentPrice };
-          
-          // Optionally update the last entry in dailyHistory if it's today
           const today = new Date().toISOString().split('T')[0];
           const history = [...prev.dailyHistory];
           const lastEntry = history[history.length - 1];
@@ -153,9 +153,6 @@ export default function App() {
           if (lastEntry && lastEntry.date.startsWith(today)) {
             history[history.length - 1] = { ...lastEntry, price: currentPrice };
             newData.dailyHistory = history;
-          } else if (lastEntry && lastEntry.date < today) {
-            // If it's a new day, we could push a new entry, but for simplicity we'll just update currentPrice
-            // and let the next full refresh handle the history structure
           }
           
           return newData;
@@ -166,7 +163,7 @@ export default function App() {
       } finally {
         setIsUpdating(false);
       }
-    }, 60000); // Poll every 60 seconds
+    }, 300000); // Poll every 5 minutes (300,000ms)
 
     return () => clearInterval(pollInterval);
   }, [data?.ticker, currency, loading]);
