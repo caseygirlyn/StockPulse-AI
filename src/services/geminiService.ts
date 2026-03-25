@@ -21,11 +21,46 @@ export interface StockData {
   };
   recommendation: {
     action: "Buy More" | "Hold" | "Sell";
+    idealEntryPrice: number;
+    stopLoss: number;
+    profitTarget: number;
+    riskRewardRatio: number;
+    positionSizing: string;
+    entryExplanation: string;
     reasons: string[];
   };
 }
 
+const CACHE_PREFIX = 'stock_analysis_cache_';
+const PRICE_CACHE_PREFIX = 'stock_price_cache_';
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes for analysis
+const PRICE_TTL = 10 * 60 * 1000; // 10 minutes for prices
+
+function getCachedData<T>(key: string): T | null {
+  const cached = localStorage.getItem(key);
+  if (!cached) return null;
+  
+  try {
+    const { data, timestamp } = JSON.parse(cached);
+    if (Date.now() - timestamp > (key.startsWith(PRICE_CACHE_PREFIX) ? PRICE_TTL : CACHE_TTL)) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedData(key: string, data: any) {
+  localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
+}
+
 export async function analyzeStock(ticker: string, avgPrice: number, currency: string = 'USD'): Promise<StockData> {
+  const cacheKey = `${CACHE_PREFIX}${ticker.toUpperCase()}_${currency}`;
+  const cached = getCachedData<StockData>(cacheKey);
+  if (cached) return cached;
+
   const prompt = `Quickly analyze stock "${ticker}". User cost: ${currency} ${avgPrice}.
   
   Required (JSON):
@@ -35,7 +70,7 @@ export async function analyzeStock(ticker: string, avgPrice: number, currency: s
   4. marketCap, peRatio
   5. news (top 4 recent, title, sentiment, url)
   6. analysis (trend, trendExplanation, support, resistance, volumeInsight, momentumStrength)
-  7. recommendation (action, 3 reasons)
+  7. recommendation (action, idealEntryPrice, stopLoss, profitTarget, riskRewardRatio, positionSizing, entryExplanation, 3 reasons)
   
   Use Google Search efficiently. Prioritize speed.`;
 
@@ -92,8 +127,15 @@ export async function analyzeStock(ticker: string, avgPrice: number, currency: s
             type: Type.OBJECT,
             properties: {
               action: { type: Type.STRING, enum: ["Buy More", "Hold", "Sell"] },
+              idealEntryPrice: { type: Type.NUMBER },
+              stopLoss: { type: Type.NUMBER },
+              profitTarget: { type: Type.NUMBER },
+              riskRewardRatio: { type: Type.NUMBER },
+              positionSizing: { type: Type.STRING },
+              entryExplanation: { type: Type.STRING },
               reasons: { type: Type.ARRAY, items: { type: Type.STRING } }
-            }
+            },
+            required: ["action", "idealEntryPrice", "stopLoss", "profitTarget", "riskRewardRatio", "positionSizing", "entryExplanation", "reasons"]
           }
         },
         required: ["ticker", "currentPrice", "dailyHistory", "ma5", "analysis", "recommendation"]
@@ -102,37 +144,75 @@ export async function analyzeStock(ticker: string, avgPrice: number, currency: s
   });
 
   try {
-    return JSON.parse(response.text);
+    const data = JSON.parse(response.text);
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error("Failed to parse Gemini response:", error);
     throw new Error("Failed to analyze stock data. Please try again.");
   }
 }
 
-export async function getLatestPrice(ticker: string, currency: string = 'USD'): Promise<{ currentPrice: number }> {
-  const prompt = `Latest price for "${ticker}" in ${currency}. JSON: { "currentPrice": number }`;
+export async function getBatchPrices(tickers: string[], currency: string = 'USD'): Promise<Record<string, number>> {
+  if (tickers.length === 0) return {};
+  
+  const results: Record<string, number> = {};
+  const tickersToFetch: string[] = [];
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          currentPrice: { type: Type.NUMBER }
-        },
-        required: ["currentPrice"]
-      }
+  tickers.forEach(t => {
+    const cached = getCachedData<number>(`${PRICE_CACHE_PREFIX}${t.toUpperCase()}_${currency}`);
+    if (cached !== null) {
+      results[t.toUpperCase()] = cached;
+    } else {
+      tickersToFetch.push(t);
     }
   });
 
+  if (tickersToFetch.length === 0) return results;
+
+  const prompt = `Latest prices for these tickers in ${currency}: ${tickersToFetch.join(', ')}. 
+  Return JSON: { "prices": { "TICKER": number, ... } }`;
+
   try {
-    return JSON.parse(response.text);
-  } catch (error) {
-    console.error("Failed to parse price update:", error);
-    throw new Error("Failed to update price");
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            prices: {
+              type: Type.OBJECT,
+              additionalProperties: { type: Type.NUMBER }
+            }
+          },
+          required: ["prices"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text);
+    Object.entries(data.prices as Record<string, number>).forEach(([t, p]) => {
+      results[t.toUpperCase()] = p;
+      setCachedData(`${PRICE_CACHE_PREFIX}${t.toUpperCase()}_${currency}`, p);
+    });
+    return results;
+  } catch (error: any) {
+    if (error?.status === 'RESOURCE_EXHAUSTED' || error?.message?.includes('quota')) {
+      console.warn("Quota exceeded, using stale cache if available");
+      // If we hit quota, we just return whatever we have in results (cached items)
+      return results;
+    }
+    console.error("Failed to parse batch prices:", error);
+    throw new Error("Failed to update prices");
   }
+}
+
+export async function getLatestPrice(ticker: string, currency: string = 'USD'): Promise<{ currentPrice: number }> {
+  const prices = await getBatchPrices([ticker], currency);
+  const price = prices[ticker.toUpperCase()] || prices[ticker] || 0;
+  return { currentPrice: price };
 }

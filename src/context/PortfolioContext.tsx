@@ -1,0 +1,82 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+
+export interface SavedPosition {
+  ticker: string;
+  avgPrice: string;
+  shares: string;
+  currency: string;
+  lastAnalyzed: string;
+}
+
+interface PortfolioContextType {
+  savedPositions: SavedPosition[];
+  savePosition: (ticker: string, avgPrice: string, shares: string, currency: string) => void;
+  deletePosition: (ticker: string) => void;
+  getPositions: () => SavedPosition[];
+}
+
+const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
+
+export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [savedPositions, setSavedPositions] = useState<SavedPosition[]>([]);
+
+  const fetchPositions = async () => {
+    try {
+      const response = await fetch('/api/portfolio');
+      if (response.ok) {
+        const data = await response.json();
+        setSavedPositions(data.positions || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch positions", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchPositions();
+  }, []);
+
+  const savePosition = async (ticker: string, avgPrice: string, shares: string, currency: string) => {
+    try {
+      const response = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: ticker.toUpperCase(), avgPrice, shares, currency })
+      });
+      if (response.ok) {
+        await fetchPositions();
+      }
+    } catch (e) {
+      console.error("Failed to save position", e);
+    }
+  };
+
+  const deletePosition = async (tickerToDelete: string) => {
+    try {
+      const response = await fetch(`/api/portfolio/${tickerToDelete}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await fetchPositions();
+      }
+    } catch (e) {
+      console.error("Failed to delete position", e);
+    }
+  };
+
+  const getPositions = () => savedPositions;
+
+  return (
+    <PortfolioContext.Provider value={{ savedPositions, savePosition, deletePosition, getPositions }}>
+      {children}
+    </PortfolioContext.Provider>
+  );
+};
+
+export const usePortfolio = () => {
+  const context = useContext(PortfolioContext);
+  if (context === undefined) {
+    throw new Error('usePortfolio must be used within a PortfolioProvider');
+  }
+  return context;
+};
