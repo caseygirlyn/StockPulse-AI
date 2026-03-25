@@ -6,11 +6,16 @@ export interface SavedPosition {
   shares: string;
   currency: string;
   lastAnalyzed: string;
+  dividendYield?: number;
+  dividendRate?: number;
+  dividendAmount?: number;
+  exDividendDate?: string;
+  paymentDate?: string;
 }
 
 interface PortfolioContextType {
   savedPositions: SavedPosition[];
-  savePosition: (ticker: string, avgPrice: string, shares: string, currency: string) => void;
+  savePosition: (ticker: string, avgPrice: string, shares: string, currency: string, dividendYield?: number, dividendRate?: number, dividendAmount?: number, exDividendDate?: string, paymentDate?: string) => void;
   deletePosition: (ticker: string) => void;
   getPositions: () => SavedPosition[];
 }
@@ -25,7 +30,11 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const response = await fetch('/api/portfolio');
       if (response.ok) {
         const data = await response.json();
-        setSavedPositions(data.positions || []);
+        const mapped = (data.positions || []).map((p: any) => ({
+          ...p,
+          lastAnalyzed: p.date || p.lastAnalyzed
+        }));
+        setSavedPositions(mapped);
       }
     } catch (e) {
       console.error("Failed to fetch positions", e);
@@ -36,12 +45,22 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     fetchPositions();
   }, []);
 
-  const savePosition = async (ticker: string, avgPrice: string, shares: string, currency: string) => {
+  const savePosition = async (ticker: string, avgPrice: string, shares: string, currency: string, dividendYield?: number, dividendRate?: number, dividendAmount?: number, exDividendDate?: string, paymentDate?: string) => {
     try {
       const response = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: ticker.toUpperCase(), avgPrice, shares, currency })
+        body: JSON.stringify({ 
+          ticker: ticker.toUpperCase(), 
+          avgPrice, 
+          shares, 
+          currency,
+          dividendYield,
+          dividendRate,
+          dividendAmount,
+          exDividendDate,
+          paymentDate
+        })
       });
       if (response.ok) {
         await fetchPositions();

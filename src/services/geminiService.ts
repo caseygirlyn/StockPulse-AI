@@ -10,6 +10,11 @@ export interface StockData {
   ma5: number;
   marketCap?: string;
   peRatio?: number;
+  dividendYield?: number;
+  dividendRate?: number;
+  dividendAmount?: number;
+  exDividendDate?: string;
+  paymentDate?: string;
   news: { title: string; sentiment: "positive" | "negative" | "neutral"; url: string }[];
   analysis: {
     trend: "Bullish" | "Bearish" | "Neutral";
@@ -67,7 +72,7 @@ export async function analyzeStock(ticker: string, avgPrice: number, currency: s
   1. currentPrice (${currency})
   2. dailyHistory (last 30 days: date, price, volume)
   3. ma5 (${currency})
-  4. marketCap, peRatio
+  4. marketCap, peRatio, dividendYield (%), dividendRate (${currency}), dividendAmount (${currency} - per share for next payment), exDividendDate (ISO), paymentDate (ISO)
   5. news (top 4 recent, title, sentiment, url)
   6. analysis (trend, trendExplanation, support, resistance, volumeInsight, momentumStrength)
   7. recommendation (action, idealEntryPrice, stopLoss, profitTarget, riskRewardRatio, positionSizing, entryExplanation, 3 reasons)
@@ -101,6 +106,11 @@ export async function analyzeStock(ticker: string, avgPrice: number, currency: s
           ma5: { type: Type.NUMBER },
           marketCap: { type: Type.STRING },
           peRatio: { type: Type.NUMBER },
+          dividendYield: { type: Type.NUMBER, description: "Annual dividend yield as a percentage" },
+          dividendRate: { type: Type.NUMBER, description: "Annual dividend amount per share" },
+          dividendAmount: { type: Type.NUMBER, description: "Amount per share for the next/recent dividend payment" },
+          exDividendDate: { type: Type.STRING, description: "ISO date string for the next or most recent ex-dividend date" },
+          paymentDate: { type: Type.STRING, description: "ISO date string for the next or most recent payment date" },
           news: {
             type: Type.ARRAY,
             items: {

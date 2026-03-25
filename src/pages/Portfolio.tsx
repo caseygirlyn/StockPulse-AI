@@ -302,9 +302,16 @@ export default function Portfolio() {
                   </div>
 
                   <div className="pt-6 border-t border-black/5 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-emerald-600">
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-xs font-black uppercase tracking-widest">Analyze Live</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 text-emerald-600">
+                        <TrendingUp className="w-4 h-4" />
+                        <span className="text-xs font-black uppercase tracking-widest">Analyze Live</span>
+                      </div>
+                      {pos.dividendYield && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg">
+                          <span className="text-[10px] font-black uppercase tracking-widest">Yield: {pos.dividendYield.toFixed(2)}%</span>
+                        </div>
+                      )}
                     </div>
                     <ChevronRight className="w-5 h-5 text-black/10 group-hover:text-emerald-500 group-hover:translate-x-2 transition-all" />
                   </div>

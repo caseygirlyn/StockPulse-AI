@@ -36,7 +36,7 @@ async function startServer() {
 
   app.post('/api/portfolio', async (req, res) => {
     try {
-      const { ticker, avgPrice, shares, currency } = req.body;
+      const { ticker, avgPrice, shares, currency, dividendYield, dividendRate, dividendAmount, exDividendDate, paymentDate } = req.body;
       const dataStr = await fs.readFile(DATA_FILE, 'utf-8');
       const data = JSON.parse(dataStr);
       
@@ -45,6 +45,11 @@ async function startServer() {
         avgPrice,
         shares,
         currency,
+        dividendYield,
+        dividendRate,
+        dividendAmount,
+        exDividendDate,
+        paymentDate,
         date: new Date().toISOString()
       };
 
