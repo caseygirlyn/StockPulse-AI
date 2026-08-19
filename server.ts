@@ -2,12 +2,9 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { getStockAnalysis, fetchLiveYahooData, getFxDetails } from './src/services/serverStock.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const DATA_FILE = path.join(__dirname, 'data.json');
+const DATA_FILE = path.join(process.cwd(), 'data.json');
 
 async function ensureDataFile() {
   try {
@@ -25,6 +22,81 @@ async function startServer() {
   app.use(express.json());
 
   // API Routes
+  app.get('/api/fx', async (req, res) => {
+    try {
+      const fxData = await getFxDetails();
+      res.json(fxData);
+    } catch (error: any) {
+      console.error('Error fetching FX rates:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch exchange rates' });
+    }
+  });
+
+  app.get('/api/stock/:ticker', async (req, res) => {
+    try {
+      const { ticker } = req.params;
+      const avgPrice = parseFloat(req.query.avgPrice as string) || 0;
+      const currency = (req.query.currency as string) || 'USD';
+      const forceRefresh = req.query.forceRefresh === 'true';
+
+      const data = await getStockAnalysis(ticker, avgPrice, currency, forceRefresh);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`Error in /api/stock/${req.params.ticker}:`, error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch stock analysis' });
+    }
+  });
+
+  app.get('/api/price/:ticker', async (req, res) => {
+    try {
+      const { ticker } = req.params;
+      const currency = (req.query.currency as string) || 'USD';
+      const data = await getStockAnalysis(ticker, 0, currency, req.query.forceRefresh === 'true');
+      res.json({
+        ticker: data.ticker,
+        currentPrice: data.currentPrice,
+        previousClose: data.previousClose,
+        priceChange: data.priceChange,
+        priceChangePercent: data.priceChangePercent,
+        currency,
+        lastUpdated: data.lastUpdated
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to fetch stock price' });
+    }
+  });
+
+  app.post('/api/prices', async (req, res) => {
+    try {
+      const { tickers, currency = 'USD' } = req.body;
+      if (!Array.isArray(tickers)) {
+        return res.status(400).json({ error: 'tickers must be an array' });
+      }
+
+      const results: Record<string, { currentPrice: number; previousClose: number; priceChange: number; priceChangePercent: number }> = {};
+      
+      await Promise.all(
+        tickers.map(async (t: string) => {
+          try {
+            const data = await getStockAnalysis(t, 0, currency, false);
+            results[t.toUpperCase()] = {
+              currentPrice: data.currentPrice,
+              previousClose: data.previousClose,
+              priceChange: data.priceChange,
+              priceChangePercent: data.priceChangePercent
+            };
+          } catch (e) {
+            console.warn(`Failed to fetch price for ${t}:`, e);
+          }
+        })
+      );
+
+      res.json({ prices: results });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to fetch batch prices' });
+    }
+  });
+
   app.get('/api/portfolio', async (req, res) => {
     try {
       const data = await fs.readFile(DATA_FILE, 'utf-8');
@@ -36,7 +108,21 @@ async function startServer() {
 
   app.post('/api/portfolio', async (req, res) => {
     try {
-      const { ticker, avgPrice, shares, currency, dividendYield, dividendRate, dividendAmount, exDividendDate, paymentDate } = req.body;
+      const { 
+        ticker, 
+        avgPrice, 
+        shares, 
+        currency, 
+        dividendYield, 
+        dividendRate, 
+        dividendAmount, 
+        exDividendDate, 
+        paymentDate,
+        idealEntry,
+        stopLoss,
+        takeProfit,
+        logoUrl
+      } = req.body;
       const dataStr = await fs.readFile(DATA_FILE, 'utf-8');
       const data = JSON.parse(dataStr);
       
@@ -50,6 +136,10 @@ async function startServer() {
         dividendAmount,
         exDividendDate,
         paymentDate,
+        idealEntry,
+        stopLoss,
+        takeProfit,
+        logoUrl,
         date: new Date().toISOString()
       };
 
