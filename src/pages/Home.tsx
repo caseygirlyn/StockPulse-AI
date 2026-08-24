@@ -18,30 +18,37 @@ import {
   ArrowUpDown,
   ChevronUp,
   ChevronDown,
-  Filter
+  Filter,
+  Shield,
+  ShieldAlert,
+  Target,
+  Lock,
+  Crosshair,
+  PieChart,
+  CheckCircle2,
+  Bookmark,
+  Sparkles,
+  ChevronRight,
+  Check
 } from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  ReferenceLine,
-  AreaChart,
-  Area
-} from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { analyzeStock, getLatestPrice, type StockData } from '../services/geminiService';
-import FxExchangeRate from '../components/FxExchangeRate';
+import { 
+  fetchPortfolio, 
+  savePortfolioPosition, 
+  getLocalPortfolio, 
+  type PortfolioPosition 
+} from '../services/portfolioService';
+import MultiCurrencyValuation from '../components/MultiCurrencyValuation';
+import StockPriceChart from '../components/StockPriceChart';
 import { cn, formatCurrency } from '../utils';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Home() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { theme } = useTheme();
   
   const [ticker, setTicker] = useState('');
@@ -53,11 +60,26 @@ export default function Home() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StockData | null>(null);
+  const [savedPortfolio, setSavedPortfolio] = useState<PortfolioPosition[]>([]);
+  const [justSavedNotification, setJustSavedNotification] = useState(false);
 
   const [sortConfig, setSortConfig] = useState<{ key: 'date' | 'price' | 'volume'; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   const [filterQuery, setFilterQuery] = useState('');
   const [showHistoryTable, setShowHistoryTable] = useState(false);
   const [sentimentFilter, setSentimentFilter] = useState<'all' | 'bullish' | 'neutral' | 'bearish'>('all');
+
+  // Load saved portfolio positions
+  useEffect(() => {
+    const loadSaved = () => {
+      const local = getLocalPortfolio();
+      setSavedPortfolio(local);
+      fetchPortfolio().then(setSavedPortfolio).catch(() => {});
+    };
+
+    loadSaved();
+    window.addEventListener('portfolio_updated', loadSaved);
+    return () => window.removeEventListener('portfolio_updated', loadSaved);
+  }, []);
 
   const sortedAndFilteredHistory = useMemo(() => {
     if (!data) return [];
@@ -103,6 +125,40 @@ export default function Home() {
     "Generating final recommendation..."
   ];
 
+  // Handle ticker change and autofill saved average price if known
+  const handleTickerChange = (val: string) => {
+    setTicker(val);
+    const clean = val.trim().toUpperCase();
+    const matched = savedPortfolio.find(p => p.ticker.toUpperCase() === clean);
+    if (matched) {
+      if (!avgPrice || avgPrice === '0') {
+        setAvgPrice(matched.avgPrice.toString());
+      }
+      if (matched.shares && !shares) {
+        setShares(matched.shares.toString());
+      }
+      if (matched.currency) {
+        setCurrency(matched.currency);
+      }
+    }
+  };
+
+  // Quick load from portfolio position
+  const handleSelectPortfolioPosition = (pos: PortfolioPosition) => {
+    setTicker(pos.ticker);
+    setAvgPrice(pos.avgPrice.toString());
+    setShares(pos.shares ? pos.shares.toString() : '');
+    setCurrency(pos.currency || 'USD');
+
+    const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+    handleSubmit(fakeEvent, {
+      ticker: pos.ticker,
+      avgPrice: pos.avgPrice.toString(),
+      shares: pos.shares ? pos.shares.toString() : '',
+      currency: pos.currency || 'USD'
+    });
+  };
+
   // Handle URL parameters for loading positions
   useEffect(() => {
     const t = searchParams.get('ticker');
@@ -143,7 +199,44 @@ export default function Home() {
     try {
       const result = await analyzeStock(currentTicker.toUpperCase(), parseFloat(currentAvgPrice), currentCurrency, forceRefresh);
       setData(result);
-      setLastUpdated(new Date());
+      const canonicalDate = result.canonicalTimestamp || result.marketTimestamp || result.lastUpdated;
+      setLastUpdated(canonicalDate ? new Date(canonicalDate) : new Date());
+
+      // Automatically store/update this stock and average price in Portfolio
+      const numAvg = parseFloat(currentAvgPrice);
+      if (!isNaN(numAvg) && numAvg > 0) {
+        savePortfolioPosition({
+          ticker: result.ticker.toUpperCase(),
+          avgPrice: numAvg,
+          shares: (overridePos?.shares || shares) ? parseFloat(overridePos?.shares || shares) : undefined,
+          currency: currentCurrency,
+          exchange: result.exchange,
+          lastAnalyzedPrice: result.currentPrice,
+          currentPrice: result.currentPrice,
+          previousClose: result.previousClose,
+          priceChange: result.priceChange,
+          priceChangePercent: result.priceChangePercent,
+          trend: result.analysis.trend,
+          recommendationAction: result.recommendation.action,
+          ma5: result.ma5,
+          avwapAthPrice: result.avwapAth?.avwapPrice,
+          dividendYield: result.dividendYield,
+          dividendRate: result.dividendRate,
+          dividendAmount: result.dividendAmount,
+          exDividendDate: result.exDividendDate,
+          paymentDate: result.paymentDate,
+          idealEntry: result.recommendation.idealEntryPrice,
+          stopLoss: result.recommendation.stopLoss,
+          takeProfit: result.recommendation.profitTarget,
+          logoUrl: result.logoUrl,
+          date: new Date().toISOString()
+        }).then(() => {
+          setJustSavedNotification(true);
+          setTimeout(() => setJustSavedNotification(false), 4000);
+        }).catch(err => {
+          console.warn('Portfolio auto-save error:', err);
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
@@ -152,6 +245,67 @@ export default function Home() {
     }
   };
 
+  const handleUpdatePrice = async (forceRefresh: boolean = true) => {
+    if (!data || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      const latest = await getLatestPrice(data.ticker, currency, forceRefresh);
+      const canonicalIso = latest.canonicalTimestamp || latest.marketTimestamp || latest.lastUpdated || new Date().toISOString();
+
+      setData(prev => {
+        if (!prev) return null;
+        const updatedData = { 
+          ...prev, 
+          currentPrice: latest.currentPrice,
+          previousClose: latest.previousClose ?? prev.previousClose,
+          priceChange: latest.priceChange ?? prev.priceChange,
+          priceChangePercent: latest.priceChangePercent ?? prev.priceChangePercent,
+          priceSource: latest.priceSource ?? prev.priceSource,
+          exchange: latest.exchange ?? prev.exchange,
+          exchangeTimezone: latest.exchangeTimezone ?? prev.exchangeTimezone,
+          marketTimestamp: latest.marketTimestamp ?? canonicalIso,
+          canonicalTimestamp: canonicalIso,
+          lastUpdated: canonicalIso
+        };
+
+        const today = new Date(canonicalIso).toISOString().split('T')[0];
+        const history = [...prev.dailyHistory];
+        const lastEntry = history[history.length - 1];
+        
+        if (lastEntry && lastEntry.date.startsWith(today)) {
+          history[history.length - 1] = { ...lastEntry, price: latest.currentPrice };
+          updatedData.dailyHistory = history;
+        }
+        
+        return updatedData;
+      });
+      
+      setLastUpdated(new Date(canonicalIso));
+    } catch (err) {
+      console.error("Price update failed:", err);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCurrencyChange = async (newCurrency: string) => {
+    if (newCurrency === currency) return;
+    setCurrency(newCurrency);
+    if (data) {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await analyzeStock(data.ticker, parseFloat(avgPrice || '0'), newCurrency, false);
+        setData(result);
+        const canonicalDate = result.canonicalTimestamp || result.marketTimestamp || result.lastUpdated;
+        setLastUpdated(canonicalDate ? new Date(canonicalDate) : new Date());
+      } catch (err) {
+        console.error("Currency switch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -204,49 +358,19 @@ export default function Home() {
         ...item,
         displayDate: format(parseISO(item.date), 'MMM dd'),
         ma5: index >= 4 ? ma5 : null,
+        avwapAth: item.avwapAth ?? null,
       };
     });
   }, [data]);
 
-  // Real-time polling for latest stock price
+  // Real-time polling for latest stock price from canonical feed
   useEffect(() => {
     if (!data || loading) return;
 
     const pollInterval = setInterval(async () => {
       const isDataSaver = localStorage.getItem('data_saver_mode') === 'true';
       if (document.hidden || !data || loading || isDataSaver) return;
-      
-      setIsUpdating(true);
-      try {
-        const latest = await getLatestPrice(data.ticker, currency, true);
-        
-        setData(prev => {
-          if (!prev) return null;
-          
-          const newData = { 
-            ...prev, 
-            currentPrice: latest.currentPrice,
-            previousClose: latest.previousClose ?? prev.previousClose,
-            priceChange: latest.priceChange ?? prev.priceChange,
-            priceChangePercent: latest.priceChangePercent ?? prev.priceChangePercent
-          };
-          const today = new Date().toISOString().split('T')[0];
-          const history = [...prev.dailyHistory];
-          const lastEntry = history[history.length - 1];
-          
-          if (lastEntry && lastEntry.date.startsWith(today)) {
-            history[history.length - 1] = { ...lastEntry, price: latest.currentPrice };
-            newData.dailyHistory = history;
-          }
-          
-          return newData;
-        });
-        setLastUpdated(new Date());
-      } catch (err: any) {
-        console.error("Failed to poll price:", err);
-      } finally {
-        setIsUpdating(false);
-      }
+      await handleUpdatePrice(true);
     }, 15000);
 
     return () => clearInterval(pollInterval);
@@ -278,63 +402,156 @@ export default function Home() {
                     <Search className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
                     <h3 className="font-black text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40">New Analysis</h3>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 md:gap-4">
-                    <div className="space-y-0.5 text-left">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-black/30 dark:text-white/30 ml-1">Ticker Symbol</label>
+                  <div className="grid grid-cols-2 gap-3 md:gap-4 items-start">
+                    <div className="space-y-1 text-left">
+                      <div className="flex items-center justify-between h-4">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
+                          Ticker Symbol
+                        </label>
+                        {savedPortfolio.some(p => p.ticker.toUpperCase() === ticker.trim().toUpperCase()) && (
+                          <span className="text-[8px] font-black uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> Saved
+                          </span>
+                        )}
+                      </div>
                       <input 
                         type="text" 
                         placeholder="e.g. NVDA" 
-                        className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 py-2.5 md:px-5 md:py-3 outline-none focus:border-emerald-500 transition-all font-bold uppercase text-sm"
+                        className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 md:px-5 outline-none focus:border-emerald-500 transition-all font-bold uppercase text-sm"
                         value={ticker}
-                        onChange={(e) => setTicker(e.target.value)}
+                        onChange={(e) => handleTickerChange(e.target.value)}
                         required
                       />
                     </div>
-                    <div className="space-y-0.5 text-left">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-black/30 dark:text-white/30 ml-1">Avg Price</label>
+                    <div className="space-y-1 text-left">
+                      <div className="flex items-center justify-between h-4">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
+                          Avg Price ({currency})
+                        </label>
+                      </div>
                       <input 
                         type="number" 
-                        step="0.01"
+                        step="0.01" 
                         placeholder="0.00" 
-                        className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 py-2.5 md:px-5 md:py-3 outline-none focus:border-emerald-500 transition-all font-bold text-sm"
+                        className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 md:px-5 outline-none focus:border-emerald-500 transition-all font-bold text-sm font-mono"
                         value={avgPrice}
                         onChange={(e) => setAvgPrice(e.target.value)}
                         required
                       />
                     </div>
                   </div>
-                  <div className="space-y-0.5 text-left">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-black/30 dark:text-white/30 ml-1">Number of Shares (Optional)</label>
-                    <input 
+
+                  <div className="grid grid-cols-2 gap-3 md:gap-4 items-start">
+                    <div className="space-y-1 text-left">
+                      <div className="flex items-center justify-between h-4">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
+                          Shares (Optional)
+                        </label>
+                      </div>
+                      <input 
                         type="number" 
-                        step="0.01"
+                        step="0.01" 
                         placeholder="e.g. 10" 
-                        className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 py-2.5 md:px-5 md:py-3 outline-none focus:border-emerald-500 transition-all font-bold text-sm"
+                        className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 md:px-5 outline-none focus:border-emerald-500 transition-all font-bold text-sm"
                         value={shares}
                         onChange={(e) => setShares(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-0.5 text-left">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-black/30 dark:text-white/30 ml-1">Currency</label>
-                    <select 
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 py-2.5 md:px-5 md:py-3 outline-none focus:border-emerald-500 transition-all font-bold cursor-pointer text-sm"
-                    >
-                      <option value="USD">USD ($)</option>
-                      <option value="GBP">GBP (£)</option>
-                      <option value="EUR">EUR (€)</option>
-                    </select>
+                      />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <div className="flex items-center justify-between h-4">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
+                          Currency
+                        </label>
+                      </div>
+                      <select 
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 md:px-5 outline-none focus:border-emerald-500 transition-all font-bold cursor-pointer text-sm"
+                      >
+                        <option value="USD">USD ($)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="EUR">EUR (€)</option>
+                      </select>
+                    </div>
                   </div>
                   <button 
                     type="submit" 
                     disabled={loading}
-                    className="w-full bg-black text-white font-black py-3.5 md:py-4 rounded-xl hover:bg-emerald-600 shadow-xl hover:shadow-emerald-500/20 transition-all flex items-center justify-center gap-3 text-sm md:text-base"
+                    className="w-full bg-black dark:bg-white text-white dark:text-black font-black py-3.5 md:py-4 rounded-xl hover:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl transition-all flex items-center justify-center gap-3 text-sm md:text-base cursor-pointer"
                   >
                     {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Generate Report'}
                   </button>
                 </form>
               </div>
+
+              {/* Quick Load Saved Portfolio Stocks */}
+              {savedPortfolio.length > 0 && (
+                <div className="mt-8 max-w-xl mx-auto">
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <div className="flex items-center gap-2">
+                      <PieChart className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
+                      <span className="text-xs font-black uppercase tracking-wider text-black/60 dark:text-white/60">
+                        Quick Load Stored Stocks ({savedPortfolio.length})
+                      </span>
+                    </div>
+                    <Link 
+                      to="/portfolio" 
+                      className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>Manage Portfolio</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {savedPortfolio.map((pos) => {
+                      const cur = pos.currency || 'USD';
+                      const pnl = pos.currentPrice ? ((pos.currentPrice - pos.avgPrice) / pos.avgPrice) * 100 : null;
+                      return (
+                        <button
+                          key={pos.ticker}
+                          type="button"
+                          onClick={() => handleSelectPortfolioPosition(pos)}
+                          className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 hover:border-emerald-500/50 p-3 rounded-2xl text-left transition-all hover:shadow-md flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-black/5 dark:bg-white/5 flex items-center justify-center font-black text-xs group-hover:bg-emerald-500/10 group-hover:text-emerald-600 transition-colors">
+                              {pos.ticker.slice(0, 3)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-black text-sm tracking-tight">{pos.ticker}</span>
+                                {pos.shares && (
+                                  <span className="text-[10px] text-black/40 dark:text-white/40 font-mono">
+                                    {pos.shares} sh
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-black/50 dark:text-white/50 font-medium">
+                                Stored Avg: <span className="font-bold text-black/70 dark:text-white/70">{formatCurrency(pos.avgPrice, cur)}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right flex items-center gap-2">
+                            {pnl !== null && (
+                              <span className={cn(
+                                "text-[11px] font-black font-mono px-2 py-0.5 rounded-lg",
+                                pnl >= 0 
+                                  ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
+                                  : "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                              )}>
+                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}%
+                              </span>
+                            )}
+                            <ChevronRight className="w-4 h-4 text-black/20 dark:text-white/20 group-hover:text-emerald-500 transition-colors" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -432,70 +649,55 @@ export default function Home() {
                       "w-2 h-2 rounded-full",
                       isUpdating ? "bg-emerald-400 animate-ping" : "bg-emerald-500"
                     )} />
-                    <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">Live</span>
+                    <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
+                      {data.exchange ? `${data.exchange} Live` : 'Live'}
+                    </span>
                     <span className="text-[10px] font-bold text-emerald-600/60 dark:text-emerald-500/60 ml-1">
                       {format(lastUpdated, 'HH:mm:ss')}
                     </span>
                     <button 
-                      onClick={async () => {
-                        if (isUpdating) return;
-                        setIsUpdating(true);
-                        try {
-                          const latest = await getLatestPrice(data.ticker, currency, true);
-                          setData(prev => prev ? { 
-                            ...prev, 
-                            currentPrice: latest.currentPrice,
-                            previousClose: latest.previousClose ?? prev.previousClose,
-                            priceChange: latest.priceChange ?? prev.priceChange,
-                            priceChangePercent: latest.priceChangePercent ?? prev.priceChangePercent
-                          } : null);
-                          setLastUpdated(new Date());
-                        } catch (err) {
-                          console.error("Manual refresh failed:", err);
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
+                      onClick={() => handleUpdatePrice(true)}
+                      disabled={isUpdating}
                       className="p-0.5 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded-full transition-colors group ml-0.5"
-                      title="Refresh Price"
+                      title="Refresh Canonical Price"
                     >
-                      <RefreshCw className={`w-2.5 h-2.5 text-emerald-600/40 dark:text-emerald-500/40 group-hover:text-emerald-600 dark:group-hover:text-emerald-500 ${isUpdating ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={cn("w-2.5 h-2.5 text-emerald-600/40 dark:text-emerald-500/40 group-hover:text-emerald-600 dark:group-hover:text-emerald-500", isUpdating && "animate-spin")} />
                     </button>
                   </div>
                 </div>
-                  <div className="relative flex items-center gap-3">
+                  <div className="relative flex items-center gap-2 md:gap-3">
+                    {justSavedNotification && (
+                      <motion.span 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="hidden sm:inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-xl border border-emerald-500/20"
+                      >
+                        <Check className="w-3 h-3" /> Stored in Portfolio
+                      </motion.span>
+                    )}
+                    <Link
+                      to="/portfolio"
+                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 md:px-3 md:py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm flex items-center gap-1.5"
+                      title="View all saved positions"
+                    >
+                      <PieChart className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
+                      <span className="hidden sm:inline text-[10px]">Portfolio</span>
+                    </Link>
                     <button 
-                      onClick={async () => {
-                        if (isUpdating) return;
-                        setIsUpdating(true);
-                        try {
-                          const latest = await getLatestPrice(data.ticker, currency, true);
-                          setData(prev => prev ? { 
-                            ...prev, 
-                            currentPrice: latest.currentPrice,
-                            previousClose: latest.previousClose ?? prev.previousClose,
-                            priceChange: latest.priceChange ?? prev.priceChange,
-                            priceChangePercent: latest.priceChangePercent ?? prev.priceChangePercent
-                          } : null);
-                          setLastUpdated(new Date());
-                        } catch (err) {
-                          console.error("Price refresh failed:", err);
-                        } finally {
-                          setIsUpdating(false);
-                        }
-                      }}
+                      onClick={() => handleUpdatePrice(true)}
                       disabled={isUpdating}
-                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5"
-                      title="Refresh Latest Price"
+                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                      title="Refresh Canonical Price"
                     >
                       <RefreshCw className={cn("w-4 h-4 text-emerald-600 dark:text-emerald-500", isUpdating && "animate-spin")} />
-                      <span className="hidden sm:inline text-[10px]">Refresh Price</span>
+                      <span className="hidden sm:inline text-[10px]">Refresh</span>
                     </button>
                     <button 
                       onClick={() => setData(null)}
-                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm"
+                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 px-3 md:px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm cursor-pointer"
                     >
-                      New Analysis
+                      New
                     </button>
                   </div>
               </div>
@@ -524,6 +726,13 @@ export default function Home() {
                       }] : []),
                       { label: 'Stock Trend', value: data.ticker, sub: data.analysis.trend, trend: true },
                       { label: 'MA5 Indicator', value: formatCurrency(data.ma5, currency), sub: data.currentPrice > data.ma5 ? 'ABOVE' : 'BELOW', indicator: true },
+                      ...(data.avwapAth ? [{
+                        label: 'ATH Anchored VWAP',
+                        value: formatCurrency(data.avwapAth.avwapPrice, currency),
+                        sub: `${data.avwapAth.diffPercent >= 0 ? '+' : ''}${data.avwapAth.diffPercent}% (${data.avwapAth.status.toUpperCase()})`,
+                        gain: data.avwapAth.status === 'above'
+                      }] : []),
+                      ...(data.priceSource ? [{ label: 'Canonical Feed', value: data.exchange || 'Live Feed', sub: 'Verified Quote', badge: true }] : []),
                       ...(parseFloat(avgPrice) !== 0 ? [{ label: 'Avg Purchase', value: formatCurrency(parseFloat(avgPrice), currency), sub: `${unrealizedGainLoss >= 0 ? '+' : ''}${unrealizedGainLoss.toFixed(2)}% P/L`, gain: unrealizedGainLoss >= 0 }] : []),
                       ...(data.marketCap ? [{ label: 'Market Cap', value: data.marketCap, sub: 'Valuation' }] : []),
                       ...(data.peRatio ? [{ label: 'P/E Ratio', value: data.peRatio.toFixed(2), sub: 'Earnings' }] : []),
@@ -544,7 +753,11 @@ export default function Home() {
                           >
                             {stat.value}
                           </motion.h3>
-                          {stat.trend ? (
+                          {stat.badge ? (
+                            <div className="px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              {stat.sub}
+                            </div>
+                          ) : stat.trend ? (
                             <div className={cn(
                               "px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase",
                               data.analysis.trend === 'Bullish' ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : 
@@ -575,95 +788,13 @@ export default function Home() {
                   </div>
 
                   {/* Chart Section */}
-                  <div className="bg-white dark:bg-[#141414] p-5 md:p-6 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-sm">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-black text-lg tracking-tight">Price Performance</h4>
-                        <p className="text-[10px] font-medium text-black/30 dark:text-white/30">30-Day Historical Trend & Moving Average</p>
-                      </div>
-                      <div className="flex items-center gap-3 text-[8px] font-black uppercase tracking-widest flex-wrap shrink-0 text-black/60 dark:text-white/60">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                          <span>Price</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                          <span>MA5</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2.5 h-0.5 bg-black/40 dark:bg-white/40 border-t border-dashed border-black dark:border-white" />
-                          <span>Entry</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="h-[300px] md:h-[400px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
-                              <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"} />
-                          <XAxis 
-                            dataKey="displayDate" 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 9, fontWeight: 800, fill: theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)' }}
-                            dy={10}
-                            interval="preserveStartEnd"
-                          />
-                          <YAxis 
-                            domain={['auto', 'auto']} 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 9, fontWeight: 800, fill: theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)' }}
-                            tickFormatter={(val) => formatCurrency(val, currency)}
-                          />
-                          <Tooltip 
-                            cursor={{ stroke: '#10b981', strokeWidth: 1, strokeDasharray: '4 4' }}
-                            contentStyle={{ 
-                              backgroundColor: theme === 'dark' ? '#141414' : '#fff', 
-                              borderRadius: '20px', 
-                              border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                              boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)'
-                            }}
-                            itemStyle={{ fontSize: '11px', fontWeight: '800', padding: '2px 0', color: theme === 'dark' ? '#fff' : '#000' }}
-                            labelStyle={{ fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', color: theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)', letterSpacing: '0.1em', marginBottom: '8px' }}
-                          />
-                          {parseFloat(avgPrice) !== 0 && (
-                            <ReferenceLine 
-                              y={parseFloat(avgPrice)} 
-                              stroke={theme === 'dark' ? "#fff" : "#000"} 
-                              strokeDasharray="6 6" 
-                              strokeOpacity={0.2}
-                              label={{ position: 'right', value: 'ENTRY', fill: theme === 'dark' ? '#fff' : '#000', fontSize: 9, fontWeight: 900, opacity: 0.3 }}
-                            />
-                          )}
-                          <Area 
-                            type="monotone" 
-                            dataKey="price" 
-                            stroke="#10b981" 
-                            strokeWidth={4} 
-                            fillOpacity={1} 
-                            fill="url(#colorPrice)" 
-                            animationDuration={2000}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="ma5" 
-                            stroke="#f59e0b" 
-                            strokeWidth={2} 
-                            dot={false} 
-                            strokeDasharray="4 4"
-                            animationDuration={2500}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+                  <StockPriceChart 
+                    data={data}
+                    chartData={chartData}
+                    avgPrice={avgPrice}
+                    currency={currency}
+                    lastUpdated={lastUpdated}
+                  />
 
                   {/* Market Sentiment & Intelligence Dashboard */}
                   <div className="bg-white dark:bg-[#141414] p-5 md:p-6 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-sm space-y-6">
@@ -875,75 +1006,143 @@ export default function Home() {
                 {/* Sidebar Analysis - Moved Up */}
                 <motion.div variants={itemVariants} className="space-y-5">
                   {/* Recommendation Card */}
-                  <motion.div 
-                    whileHover={{ scale: 1.01 }}
-                    className={cn(
-                      "p-6 md:p-8 rounded-[2rem] border shadow-xl relative overflow-hidden transition-all duration-500",
-                      data.recommendation.action === 'Buy More' ? "bg-emerald-600 border-emerald-500 text-white" :
-                      data.recommendation.action === 'Sell' ? "bg-red-600 border-red-500 text-white" : "bg-white dark:bg-[#141414] border-black/5 dark:border-white/5"
-                    )}
-                  >
-                    <div className="relative z-10 min-w-0">
-                      <p className={cn(
-                        "text-[9px] font-black uppercase tracking-[0.25em] mb-2 opacity-60",
-                        data.recommendation.action === 'Hold' ? "text-black/40 dark:text-white/40" : "text-white/70"
-                      )}>
-                        AI Intelligence
-                      </p>
-                      <h3 className="text-3xl md:text-4xl font-black mb-3 tracking-tighter">{data.recommendation.action}</h3>
-                      
-                      <div className={cn(
-                        "mb-6 p-4 rounded-xl border",
-                        data.recommendation.action === 'Hold' ? "bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5" : "bg-white/10 border-white/20"
-                      )}>
-                        <div className="grid grid-cols-3 gap-3 mb-3">
+                  {(() => {
+                    const currentPx = data.currentPrice || 0;
+                    const stopLossVal = data.recommendation.stopLoss;
+                    const takeProfitVal = data.recommendation.profitTarget;
+                    const stopLossDistance = currentPx > 0 ? ((stopLossVal - currentPx) / currentPx) * 100 : -5;
+                    const takeProfitDistance = currentPx > 0 ? ((takeProfitVal - currentPx) / currentPx) * 100 : 10;
+
+                    return (
+                      <motion.div 
+                        whileHover={{ scale: 1.005 }}
+                        className="bg-white dark:bg-[#141414] p-6 md:p-7 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-sm space-y-5 relative overflow-hidden"
+                      >
+                        {/* Header & Action Badge */}
+                        <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5 opacity-60">Ideal Entry</p>
-                            <p className="text-sm font-black tracking-tight">{formatCurrency(data.recommendation.idealEntryPrice, currency)}</p>
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black/40 dark:text-white/40 flex items-center gap-1.5 mb-1">
+                              <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              AI Intelligence
+                            </p>
+                            <h3 className="text-2xl md:text-3xl font-black tracking-tight text-black dark:text-white">
+                              {data.recommendation.action}
+                            </h3>
                           </div>
-                          <div>
-                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5 opacity-60">Stop Loss (-5%)</p>
-                            <p className="text-sm font-black tracking-tight text-red-500">{formatCurrency(data.recommendation.stopLoss, currency)}</p>
-                          </div>
-                          <div>
-                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5 opacity-60">Take Profit</p>
-                            <p className="text-sm font-black tracking-tight text-emerald-500">{formatCurrency(data.recommendation.profitTarget, currency)}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-3 gap-3 mb-3 pt-3 border-t border-white/10">
-                          <div>
-                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5 opacity-60">Risk/Reward</p>
-                            <p className="text-sm font-black tracking-tight">1:{data.recommendation.riskRewardRatio.toFixed(1)}</p>
-                          </div>
-                          <div className="col-span-2">
-                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5 opacity-60">Position Size</p>
-                            <p className="text-xs font-bold tracking-tight opacity-90">{data.recommendation.positionSizing}</p>
+                          <div className={cn(
+                            "px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5 shrink-0",
+                            data.recommendation.action === 'Buy More' ? "bg-emerald-600 text-white" :
+                            data.recommendation.action === 'Sell' ? "bg-rose-600 text-white" :
+                            "bg-amber-500 text-white"
+                          )}>
+                            {data.recommendation.action === 'Buy More' && <TrendingUp className="w-3.5 h-3.5" />}
+                            {data.recommendation.action === 'Sell' && <TrendingDown className="w-3.5 h-3.5" />}
+                            {data.recommendation.action === 'Hold' && <Minus className="w-3.5 h-3.5" />}
+                            <span>{data.recommendation.action}</span>
                           </div>
                         </div>
 
-                        <p className="text-[11px] font-medium opacity-80 leading-relaxed border-t border-white/10 pt-2.5">{data.recommendation.entryExplanation}</p>
-                      </div>
-                      
-                      <ul className="space-y-3">
-                        {data.recommendation.reasons.map((reason, i) => (
-                          <motion.li 
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.5 + (i * 0.1) }}
-                            key={i} 
-                            className="flex gap-3 text-xs font-bold leading-relaxed break-words"
-                          >
-                            <div className={cn(
-                              "w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
-                              data.recommendation.action === 'Hold' ? "bg-emerald-500" : "bg-white/30"
-                            )} />
-                            <span className="flex-1">{reason}</span>
-                          </motion.li>
-                        ))}
-                      </ul>
-                    </div>
-                  </motion.div>
+                        {/* Stop Loss & Take Profit Target Cards (High Contrast & Clear Readability) */}
+                        <div className="grid grid-cols-2 gap-3">
+                          {/* Take Profit Target */}
+                          <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/90 dark:border-emerald-500/30 text-left space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <Target className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                Take Profit
+                              </span>
+                              <span className="text-[9px] font-black font-mono px-1.5 py-0.5 rounded bg-emerald-200/80 dark:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300">
+                                +{takeProfitDistance >= 0 ? takeProfitDistance.toFixed(1) : ''}%
+                              </span>
+                            </div>
+                            <p className="text-base md:text-lg font-black font-mono tracking-tight text-emerald-950 dark:text-emerald-100">
+                              {formatCurrency(takeProfitVal, currency)}
+                            </p>
+                            <p className="text-[8px] font-bold uppercase tracking-wider text-emerald-700/80 dark:text-emerald-400/80">
+                              Upside Target
+                            </p>
+                          </div>
+
+                          {/* Stop Loss Target */}
+                          <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200/90 dark:border-rose-500/30 text-left space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-rose-800 dark:text-rose-300 flex items-center gap-1">
+                                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                Stop Loss
+                              </span>
+                              <span className="text-[9px] font-black font-mono px-1.5 py-0.5 rounded bg-rose-200/80 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300">
+                                {stopLossDistance.toFixed(1)}%
+                              </span>
+                            </div>
+                            <p className="text-base md:text-lg font-black font-mono tracking-tight text-rose-950 dark:text-rose-100">
+                              {formatCurrency(stopLossVal, currency)}
+                            </p>
+                            <p className="text-[8px] font-bold uppercase tracking-wider text-rose-700/80 dark:text-rose-400/80">
+                              Capital Guard
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Entry Zone & Risk/Reward Metrics */}
+                        <div className="p-3.5 rounded-2xl bg-[#F8F9FA] dark:bg-[#0D0D0D] border border-black/5 dark:border-white/5 space-y-3">
+                          <div className="grid grid-cols-3 gap-2 text-left">
+                            <div>
+                              <p className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 flex items-center gap-1">
+                                <Crosshair className="w-2.5 h-2.5 text-blue-500" /> Entry Zone
+                              </p>
+                              <p className="text-xs font-black font-mono text-black dark:text-white mt-0.5">
+                                {formatCurrency(data.recommendation.idealEntryPrice, currency)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
+                                Risk/Reward
+                              </p>
+                              <p className="text-xs font-black font-mono text-black dark:text-white mt-0.5">
+                                1:{data.recommendation.riskRewardRatio.toFixed(1)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
+                                Position Size
+                              </p>
+                              <p className="text-xs font-bold text-black/80 dark:text-white/80 mt-0.5 truncate">
+                                {data.recommendation.positionSizing}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Entry Explanation Note */}
+                          {data.recommendation.entryExplanation && (
+                            <p className="text-[11px] font-medium text-black/70 dark:text-white/70 leading-relaxed border-t border-black/5 dark:border-white/5 pt-2.5">
+                              {data.recommendation.entryExplanation}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* AI Thesis Key Reasons */}
+                        <div className="space-y-2.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
+                            Key Catalysts & Thesis
+                          </p>
+                          <ul className="space-y-2">
+                            {data.recommendation.reasons.map((reason, i) => (
+                              <motion.li 
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: 0.2 + (i * 0.08) }}
+                                key={i} 
+                                className="flex items-start gap-2.5 text-xs font-medium leading-relaxed text-black/80 dark:text-white/80 bg-black/[0.02] dark:bg-white/[0.02] p-2.5 rounded-xl border border-black/5 dark:border-white/5"
+                              >
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                                <span className="flex-1">{reason}</span>
+                              </motion.li>
+                            ))}
+                          </ul>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
 
                   {/* Dividend Event Notice */}
                   {(data.dividendYield ?? 0) > 0 && (
@@ -996,14 +1195,59 @@ export default function Home() {
                           <p className="text-[9px] font-black text-black/30 dark:text-white/30 uppercase tracking-widest mb-0.5">Trend Analysis</p>
                           <p className="text-xs font-bold leading-relaxed">{data.analysis.trendExplanation}</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 bg-[#F5F5F5] dark:bg-[#0A0A0A] rounded-xl">
-                            <p className="text-[8px] font-black text-black/30 dark:text-white/30 uppercase tracking-widest mb-0.5">Support</p>
-                            <p className="text-xs font-black">{formatCurrency(data.analysis.support, currency)}</p>
+                        {/* Connected Support / Entry / Resistance Channel */}
+                        <div className="p-3.5 bg-[#F5F5F5] dark:bg-[#0A0A0A] rounded-2xl border border-black/5 dark:border-white/5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[8px] font-black text-black/40 dark:text-white/40 uppercase tracking-widest flex items-center gap-1">
+                              <Crosshair className="w-3 h-3 text-indigo-500" />
+                              Key Technical Corridor
+                            </span>
+                            {data.analysis.resistance > data.analysis.support && (
+                              <span className="text-[8px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                Span: {formatCurrency(data.analysis.resistance - data.analysis.support, currency)}
+                              </span>
+                            )}
                           </div>
-                          <div className="p-3 bg-[#F5F5F5] dark:bg-[#0A0A0A] rounded-xl">
-                            <p className="text-[8px] font-black text-black/30 dark:text-white/30 uppercase tracking-widest mb-0.5">Resistance</p>
-                            <p className="text-xs font-black">{formatCurrency(data.analysis.resistance, currency)}</p>
+
+                          {/* Visual Connected Track */}
+                          {data.analysis.resistance > data.analysis.support && (
+                            <div className="relative pt-3 pb-2 px-1">
+                              <div className="h-2 w-full rounded-full bg-gradient-to-r from-emerald-500 via-purple-500 to-indigo-500 opacity-20 dark:opacity-30 relative" />
+                              
+                              {/* Current Price Pin */}
+                              {(() => {
+                                const span = data.analysis.resistance - data.analysis.support;
+                                const pos = Math.min(100, Math.max(0, ((data.currentPrice - data.analysis.support) / span) * 100));
+                                return (
+                                  <div 
+                                    className="absolute top-1.5 -translate-x-1/2 flex flex-col items-center z-10"
+                                    style={{ left: `${pos}%` }}
+                                  >
+                                    <div className="w-3.5 h-3.5 rounded-full bg-black dark:bg-white border-2 border-emerald-500 shadow-md flex items-center justify-center" />
+                                    <span className="text-[7px] font-black font-mono mt-0.5 whitespace-nowrap bg-black dark:bg-white text-white dark:text-black px-1 rounded">
+                                      {pos.toFixed(0)}%
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-black/5 dark:border-white/5">
+                            <div className="p-2 rounded-xl bg-white dark:bg-[#141414] border border-emerald-500/20">
+                              <p className="text-[8px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                <Shield className="w-2.5 h-2.5" />
+                                Support Floor
+                              </p>
+                              <p className="text-xs font-black font-mono">{formatCurrency(data.analysis.support, currency)}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-white dark:bg-[#141414] border border-indigo-500/20">
+                              <p className="text-[8px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5" />
+                                Resistance
+                              </p>
+                              <p className="text-xs font-black font-mono">{formatCurrency(data.analysis.resistance, currency)}</p>
+                            </div>
                           </div>
                         </div>
                         <div>
@@ -1032,8 +1276,14 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Live FX Exchange Rate & Currency Converter */}
-                  <FxExchangeRate selectedCurrency={currency} onCurrencySelect={setCurrency} />
+                  {/* Multi-Currency Valuation & Global FX Pricing */}
+                  <MultiCurrencyValuation 
+                    currentPrice={data.currentPrice}
+                    activeCurrency={currency}
+                    shares={shares ? parseFloat(shares) : undefined}
+                    ticker={data.ticker}
+                    onCurrencyChange={handleCurrencyChange}
+                  />
                 </motion.div>
               </div>
 

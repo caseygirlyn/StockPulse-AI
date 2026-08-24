@@ -1,11 +1,26 @@
+export interface AvwapAthData {
+  athPrice: number;
+  athDate?: string;
+  avwapPrice: number;
+  diffPercent: number;
+  status: 'above' | 'below';
+  explanation: string;
+}
+
 export interface StockData {
   ticker: string;
   currentPrice: number;
   previousClose?: number;
   priceChange?: number;
   priceChangePercent?: number;
-  dailyHistory: { date: string; price: number; volume: number }[];
+  priceSource?: string;
+  exchange?: string;
+  exchangeTimezone?: string;
+  marketTimestamp?: string;
+  canonicalTimestamp?: string;
+  dailyHistory: { date: string; price: number; volume: number; avwapAth?: number | null }[];
   ma5: number;
+  avwapAth?: AvwapAthData;
   marketCap?: string;
   peRatio?: number;
   dividendYield?: number;
@@ -53,47 +68,86 @@ export interface StockData {
   lastUpdated?: string;
 }
 
+export interface LatestPriceResult {
+  ticker: string;
+  currentPrice: number;
+  previousClose?: number;
+  priceChange?: number;
+  priceChangePercent?: number;
+  priceSource?: string;
+  exchange?: string;
+  exchangeTimezone?: string;
+  marketTimestamp?: string;
+  canonicalTimestamp?: string;
+  currency?: string;
+  lastUpdated?: string;
+}
+
+async function safeJsonFetch<T>(res: Response, fallbackError: string): Promise<T> {
+  const contentType = res.headers.get('content-type') || '';
+  const text = await res.text();
+
+  if (!contentType.includes('application/json')) {
+    if (!res.ok) {
+      throw new Error(`Server returned error (${res.status}): ${fallbackError}`);
+    }
+    throw new Error('Unexpected non-JSON response from server. Please try refreshing or checking the ticker symbol.');
+  }
+
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON received from server. ${fallbackError}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(json?.error || fallbackError);
+  }
+
+  return json as T;
+}
+
 export async function analyzeStock(
   ticker: string, 
   avgPrice: number, 
   currency: string = 'USD', 
   forceRefresh: boolean = false
 ): Promise<StockData> {
+  const cleanTicker = (ticker || '').trim();
+  if (!cleanTicker) {
+    throw new Error('Please enter a valid ticker symbol.');
+  }
+
   const params = new URLSearchParams({
+    ticker: cleanTicker,
     avgPrice: avgPrice.toString(),
     currency,
     forceRefresh: forceRefresh ? 'true' : 'false'
   });
 
-  const res = await fetch(`/api/stock/${encodeURIComponent(ticker.toUpperCase().trim())}?${params.toString()}`);
-  
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to fetch live stock data for ${ticker}`);
-  }
-
-  const data: StockData = await res.json();
-  return data;
+  const res = await fetch(`/api/stock/${encodeURIComponent(cleanTicker.toUpperCase())}?${params.toString()}`);
+  return await safeJsonFetch<StockData>(res, `Failed to fetch live stock data for ${cleanTicker}`);
 }
 
 export async function getLatestPrice(
   ticker: string, 
   currency: string = 'USD', 
   forceRefresh: boolean = false
-): Promise<{ currentPrice: number; previousClose?: number; priceChange?: number; priceChangePercent?: number }> {
+): Promise<LatestPriceResult> {
+  const cleanTicker = (ticker || '').trim();
+  if (!cleanTicker) {
+    throw new Error('Please enter a valid ticker symbol.');
+  }
+
   const params = new URLSearchParams({
+    ticker: cleanTicker,
     currency,
     forceRefresh: forceRefresh ? 'true' : 'false'
   });
 
-  const res = await fetch(`/api/price/${encodeURIComponent(ticker.toUpperCase().trim())}?${params.toString()}`);
-  
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to fetch price for ${ticker}`);
-  }
-
-  return await res.json();
+  const res = await fetch(`/api/price/${encodeURIComponent(cleanTicker.toUpperCase())}?${params.toString()}`);
+  return await safeJsonFetch<LatestPriceResult>(res, `Failed to fetch price for ${cleanTicker}`);
 }
 
 export async function getBatchPrices(
@@ -103,24 +157,25 @@ export async function getBatchPrices(
 ): Promise<Record<string, number>> {
   if (tickers.length === 0) return {};
 
-  const res = await fetch('/api/prices', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tickers, currency, forceRefresh })
-  });
+  try {
+    const res = await fetch('/api/prices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers, currency, forceRefresh })
+    });
 
-  if (!res.ok) {
+    const json = await safeJsonFetch<{ prices?: Record<string, { currentPrice: number }> }>(res, 'Failed to fetch batch prices');
+    const pricesMap: Record<string, number> = {};
+    if (json.prices) {
+      Object.entries(json.prices).forEach(([t, val]) => {
+        pricesMap[t] = val.currentPrice;
+      });
+    }
+    return pricesMap;
+  } catch (err) {
+    console.warn('Batch price fetch error:', err);
     return {};
   }
-
-  const json = await res.json();
-  const pricesMap: Record<string, number> = {};
-  if (json.prices) {
-    Object.entries(json.prices as Record<string, { currentPrice: number }>).forEach(([t, val]) => {
-      pricesMap[t] = val.currentPrice;
-    });
-  }
-  return pricesMap;
 }
 
 export interface FxRateDetail {
@@ -149,8 +204,5 @@ export interface FxDataResponse {
 
 export async function fetchFxRates(): Promise<FxDataResponse> {
   const res = await fetch('/api/fx');
-  if (!res.ok) {
-    throw new Error('Failed to fetch FX exchange rates');
-  }
-  return await res.json();
+  return await safeJsonFetch<FxDataResponse>(res, 'Failed to fetch FX exchange rates');
 }

@@ -8,6 +8,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
+import Portfolio from './pages/Portfolio';
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/portfolio" element={<Portfolio />} />
           </Routes>
         </div>
       </Router>

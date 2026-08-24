@@ -1,13 +1,28 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
+export interface AvwapAthData {
+  athPrice: number;
+  athDate?: string;
+  avwapPrice: number;
+  diffPercent: number;
+  status: 'above' | 'below';
+  explanation: string;
+}
+
 export interface StockData {
   ticker: string;
   currentPrice: number;
   previousClose: number;
   priceChange: number;
   priceChangePercent: number;
-  dailyHistory: { date: string; price: number; volume: number }[];
+  priceSource: string;
+  exchange?: string;
+  exchangeTimezone?: string;
+  marketTimestamp: string;
+  canonicalTimestamp: string;
+  dailyHistory: { date: string; price: number; volume: number; avwapAth?: number | null }[];
   ma5: number;
+  avwapAth?: AvwapAthData;
   marketCap?: string;
   peRatio?: number;
   dividendYield?: number;
@@ -265,17 +280,37 @@ interface SingleYahooResult {
   currentPrice: number;
   previousClose: number;
   currency: string;
-  dailyHistory: { date: string; price: number; volume: number }[];
+  dailyHistory: { date: string; price: number; volume: number; avwapAth?: number | null }[];
   ma5: number;
+  athPrice?: number;
+  athDate?: string;
+  avwapAthPrice?: number;
   high52Week?: number;
   low52Week?: number;
   dayHigh?: number;
   dayLow?: number;
   isETF: boolean;
+  marketTime?: number;
+  exchangeName?: string;
+  exchangeTimezone?: string;
+}
+
+export function formatExchangeName(exchangeCode?: string): string {
+  if (!exchangeCode) return 'Global Exchange';
+  const code = exchangeCode.toUpperCase().trim();
+  if (code === 'NMS' || code === 'NGS' || code === 'NCM' || code === 'NAS' || code === 'NASDAQ') return 'NASDAQ';
+  if (code === 'NYQ' || code === 'NYSE') return 'NYSE';
+  if (code === 'LSE' || code === 'LON') return 'London Stock Exchange (LSE)';
+  if (code === 'GER' || code === 'FRA' || code === 'XETRA') return 'Frankfurt (XETRA)';
+  if (code === 'TOR' || code === 'TSX') return 'Toronto (TSX)';
+  if (code === 'PAR' || code === 'EPA') return 'Euronext Paris';
+  if (code === 'AMS') return 'Euronext Amsterdam';
+  if (code === 'CCC' || code === 'CCY') return 'Crypto/FX Live';
+  return exchangeCode;
 }
 
 async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahooResult | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbolToFetch)}?interval=1d&range=1mo`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbolToFetch)}?interval=1d&range=1y`;
   try {
     const response = await fetch(url, {
       headers: {
@@ -295,6 +330,7 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
     const timestamps: number[] = result.timestamp || [];
     const quote = result.indicators?.quote?.[0] || {};
     const closes: (number | null)[] = quote.close || [];
+    const highs: (number | null)[] = quote.high || [];
     const volumes: (number | null)[] = quote.volume || [];
 
     const validCloses = closes.filter((c): c is number => c !== null && c !== undefined && !isNaN(c));
@@ -322,20 +358,83 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
     const currentPrice = rawCurrentPrice * unitMultiplier;
     const previousClose = (rawPreviousClose > 0 ? rawPreviousClose : rawCurrentPrice) * unitMultiplier;
 
-    const dailyHistory: { date: string; price: number; volume: number }[] = [];
+    // 1. Build full chronological history
+    const allCandles: { date: string; price: number; high: number; volume: number; timestamp: number }[] = [];
 
     for (let i = 0; i < timestamps.length; i++) {
       const rawPrice = closes[i];
       if (rawPrice !== null && rawPrice !== undefined && !isNaN(rawPrice)) {
+        const rawHigh = highs[i] ?? rawPrice;
         const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
         const vol = volumes[i] ?? 1000000;
-        dailyHistory.push({
+        allCandles.push({
           date: dateStr,
           price: Number((rawPrice * unitMultiplier).toFixed(2)),
-          volume: vol
+          high: Number((rawHigh * unitMultiplier).toFixed(2)),
+          volume: vol,
+          timestamp: timestamps[i]
         });
       }
     }
+
+    allCandles.sort((a, b) => a.timestamp - b.timestamp);
+
+    // 2. Identify All-Time High / 52-Week Peak in this window
+    let maxHighPrice = meta.fiftyTwoWeekHigh ? meta.fiftyTwoWeekHigh * unitMultiplier : 0;
+    let peakIndex = -1;
+    let peakDate = '';
+
+    allCandles.forEach((c, idx) => {
+      if (c.high > maxHighPrice) {
+        maxHighPrice = c.high;
+      }
+    });
+
+    // Find the candle corresponding to the highest price
+    allCandles.forEach((c, idx) => {
+      if (c.high >= maxHighPrice * 0.999 && peakIndex === -1) {
+        peakIndex = idx;
+        peakDate = c.date;
+      }
+    });
+
+    if (peakIndex === -1 && allCandles.length > 0) {
+      // Fallback: highest close
+      let highestClose = 0;
+      allCandles.forEach((c, idx) => {
+        if (c.price > highestClose) {
+          highestClose = c.price;
+          peakIndex = idx;
+          peakDate = c.date;
+          maxHighPrice = c.price;
+        }
+      });
+    }
+
+    // 3. Compute Anchored VWAP (AVWAP) from the ATH peak date forward
+    let cumPriceVol = 0;
+    let cumVolume = 0;
+    const candlesWithAvwap = allCandles.map((c, idx) => {
+      let avwapAth: number | null = null;
+      if (peakIndex !== -1 && idx >= peakIndex) {
+        cumPriceVol += c.price * c.volume;
+        cumVolume += c.volume;
+        if (cumVolume > 0) {
+          avwapAth = Number((cumPriceVol / cumVolume).toFixed(2));
+        }
+      }
+      return {
+        date: c.date,
+        price: c.price,
+        volume: c.volume,
+        avwapAth
+      };
+    });
+
+    const latestAvwapAth = candlesWithAvwap.length > 0 ? (candlesWithAvwap[candlesWithAvwap.length - 1].avwapAth ?? null) : null;
+
+    // 4. Extract recent daily history for chart rendering (keep last 35 trading days)
+    const dailyHistory = candlesWithAvwap.slice(-35);
 
     if (dailyHistory.length > 0) {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -346,12 +445,11 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
         dailyHistory.push({
           date: todayStr,
           price: Number(currentPrice.toFixed(2)),
-          volume: meta.regularMarketVolume || 1000000
+          volume: meta.regularMarketVolume || 1000000,
+          avwapAth: latestAvwapAth
         });
       }
     }
-
-    dailyHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const last5 = dailyHistory.slice(-5);
     const ma5 = last5.length > 0
@@ -364,6 +462,10 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
                   (meta.longName || '').toLowerCase().includes('ishares') ||
                   (meta.shortName || '').toLowerCase().includes('ishares');
 
+    const marketTime = meta.regularMarketTime ? (meta.regularMarketTime * 1000) : (timestamps.length > 0 ? timestamps[timestamps.length - 1] * 1000 : Date.now());
+    const exchangeName = meta.exchangeName || meta.fullExchangeName || '';
+    const exchangeTimezone = meta.exchangeTimezoneName || 'America/New_York';
+
     return {
       symbol: meta.symbol || symbolToFetch,
       currentPrice: Number(currentPrice.toFixed(2)),
@@ -371,29 +473,74 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
       currency: nativeCurrency,
       dailyHistory,
       ma5,
-      high52Week: meta.fiftyTwoWeekHigh ? meta.fiftyTwoWeekHigh * unitMultiplier : undefined,
+      athPrice: maxHighPrice > 0 ? Number(maxHighPrice.toFixed(2)) : undefined,
+      athDate: peakDate || undefined,
+      avwapAthPrice: latestAvwapAth !== null ? Number(latestAvwapAth.toFixed(2)) : undefined,
+      high52Week: meta.fiftyTwoWeekHigh ? meta.fiftyTwoWeekHigh * unitMultiplier : maxHighPrice,
       low52Week: meta.fiftyTwoWeekLow ? meta.fiftyTwoWeekLow * unitMultiplier : undefined,
       dayHigh: meta.regularMarketDayHigh ? meta.regularMarketDayHigh * unitMultiplier : undefined,
       dayLow: meta.regularMarketDayLow ? meta.regularMarketDayLow * unitMultiplier : undefined,
-      isETF
+      isETF,
+      marketTime,
+      exchangeName,
+      exchangeTimezone
     };
   } catch {
     return null;
   }
 }
 
-export async function fetchLiveYahooData(ticker: string): Promise<SingleYahooResult> {
-  const symbol = ticker.toUpperCase().trim();
+export function normalizeSymbol(rawTicker: string): string {
+  if (!rawTicker) return '';
+  let s = rawTicker.trim().toUpperCase();
+  if (s.startsWith('$')) s = s.slice(1).trim();
+  s = s.replace('/', '-');
   
-  // Attempt 1: Fetch exact requested symbol
+  if (s.startsWith('LON:') || s.startsWith('LSE:')) {
+    s = s.replace(/^(LON|LSE):/, '') + '.L';
+  } else if (s.startsWith('EPA:')) {
+    s = s.replace(/^EPA:/, '') + '.PA';
+  } else if (s.startsWith('AMS:')) {
+    s = s.replace(/^AMS:/, '') + '.AS';
+  } else if (s.startsWith('TSX:')) {
+    s = s.replace(/^TSX:/, '') + '.TO';
+  } else if (s.startsWith('FRA:') || s.startsWith('GER:')) {
+    s = s.replace(/^(FRA|GER):/, '') + '.DE';
+  } else if (s.includes(':')) {
+    s = s.split(':')[1];
+  }
+  
+  return s.trim();
+}
+
+export async function fetchLiveYahooData(ticker: string): Promise<SingleYahooResult> {
+  const symbol = normalizeSymbol(ticker);
+  
+  if (!symbol) {
+    throw new Error('Please provide a valid stock or ETF ticker symbol (e.g. AAPL, NVDA, SSLN.L).');
+  }
+
+  // Attempt 1: Fetch exact normalized symbol
   let result = await fetchSingleYahooChart(symbol);
 
-  // Attempt 2: If no data returned and symbol has no dot, try adding .L (e.g. SSLN -> SSLN.L)
+  // Attempt 2: If dot notation like BRK.B, try BRK-B
+  if (!result && symbol.includes('.')) {
+    const dashSymbol = symbol.replace('.', '-');
+    result = await fetchSingleYahooChart(dashSymbol);
+  }
+
+  // Attempt 3: If dash notation like BRK-B, try BRK.B
+  if (!result && symbol.includes('-')) {
+    const dotSymbol = symbol.replace('-', '.');
+    result = await fetchSingleYahooChart(dotSymbol);
+  }
+
+  // Attempt 4: If no data returned and symbol has no dot, try adding .L (e.g. SSLN -> SSLN.L)
   if (!result && !symbol.includes('.')) {
     result = await fetchSingleYahooChart(`${symbol}.L`);
   }
 
-  // Attempt 3: Search Yahoo Finance search API for candidate symbols
+  // Attempt 5: Search Yahoo Finance search API for candidate symbols
   if (!result) {
     try {
       const searchRes = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=5`, {
@@ -420,7 +567,7 @@ export async function fetchLiveYahooData(ticker: string): Promise<SingleYahooRes
   }
 
   if (!result) {
-    throw new Error(`No stock or ETF market data found for symbol "${symbol}". Please check the ticker symbol (e.g. SSLN.L, SPY, QQQ).`);
+    throw new Error(`No market data found for ticker "${ticker}". Please verify the symbol (e.g., AAPL, NVDA, SPY, SSLN.L).`);
   }
 
   return result;
@@ -459,10 +606,33 @@ export async function getStockAnalysis(
   const convertedHistory = yahooData.dailyHistory.map(h => ({
     date: h.date,
     price: Number((h.price * fxRate).toFixed(2)),
-    volume: h.volume
+    volume: h.volume,
+    avwapAth: h.avwapAth ? Number((h.avwapAth * fxRate).toFixed(2)) : null
   }));
 
   const ma5 = Number((yahooData.ma5 * fxRate).toFixed(2));
+
+  // Compute converted Anchored VWAP from ATH
+  const convertedAthPrice = yahooData.athPrice ? Number((yahooData.athPrice * fxRate).toFixed(2)) : undefined;
+  const convertedAvwapPrice = yahooData.avwapAthPrice ? Number((yahooData.avwapAthPrice * fxRate).toFixed(2)) : undefined;
+  
+  let avwapAthData: StockData["avwapAth"] = undefined;
+  if (convertedAthPrice && convertedAvwapPrice && convertedAvwapPrice > 0) {
+    const diffPercent = Number((((currentPrice - convertedAvwapPrice) / convertedAvwapPrice) * 100).toFixed(2));
+    const status: 'above' | 'below' = currentPrice >= convertedAvwapPrice ? 'above' : 'below';
+    const explanation = status === 'above'
+      ? `Trading +${diffPercent}% above Anchored VWAP (${targetCurrency} ${convertedAvwapPrice.toFixed(2)}) from the high of ${targetCurrency} ${convertedAthPrice.toFixed(2)}. Buyers since the peak are in aggregate profit, providing dynamic support.`
+      : `Trading ${diffPercent}% below Anchored VWAP (${targetCurrency} ${convertedAvwapPrice.toFixed(2)}) from the high of ${targetCurrency} ${convertedAthPrice.toFixed(2)}. Aggregate volume since the peak is underwater, acting as dynamic overhead resistance.`;
+
+    avwapAthData = {
+      athPrice: convertedAthPrice,
+      athDate: yahooData.athDate,
+      avwapPrice: convertedAvwapPrice,
+      diffPercent,
+      status,
+      explanation
+    };
+  }
 
   // 3. Perform AI analysis using Gemini server-side if API key is present and circuit breaker is inactive
   const apiKey = process.env.GEMINI_API_KEY || "";
@@ -707,14 +877,24 @@ Calculate stop loss using a moderate, standard 5% stop loss threshold below curr
 
   const computedMarketCap = getFormattedMarketCap(symbol, currentPrice, targetCurrency, aiAnalysis.marketCap, yahooData.isETF);
 
+  const formattedExchange = formatExchangeName(yahooData.exchangeName);
+  const canonicalTime = new Date(yahooData.marketTime || Date.now()).toISOString();
+  const priceSource = `Yahoo Finance (${formattedExchange} Live Market Feed)`;
+
   const stockData: StockData = {
     ticker: yahooData.symbol || symbol,
     currentPrice,
     previousClose,
     priceChange,
     priceChangePercent,
+    priceSource,
+    exchange: formattedExchange,
+    exchangeTimezone: yahooData.exchangeTimezone || 'America/New_York',
+    marketTimestamp: canonicalTime,
+    canonicalTimestamp: canonicalTime,
     dailyHistory: convertedHistory,
     ma5,
+    avwapAth: avwapAthData,
     marketCap: computedMarketCap,
     peRatio: aiAnalysis.peRatio || (yahooData.isETF ? undefined : Number((18 + (currentPrice % 20)).toFixed(2))),
     dividendYield: aiAnalysis.dividendYield,
@@ -748,7 +928,7 @@ Calculate stop loss using a moderate, standard 5% stop loss threshold below curr
         `Key support established at ${targetCurrency} ${support} with profit target at ${targetCurrency} ${profitTarget}`
       ]
     },
-    lastUpdated: new Date().toISOString()
+    lastUpdated: canonicalTime
   };
 
   stockCache.set(cacheKey, { data: stockData, timestamp: Date.now() });

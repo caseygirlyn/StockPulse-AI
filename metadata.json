@@ -1,6 +1,6 @@
 {
   "name": "StockPulse",
-  "description": "Real-time AI stock analysis and market intelligence platform for actionable investment insights.",
+  "description": "Real-time AI stock analysis and persistent portfolio tracking with technical indicators, anchored VWAP, and cost basis analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
