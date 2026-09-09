@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { fetchFxRates, type FxDataResponse } from '../services/geminiService';
 import { cn, formatCurrency } from '../utils';
+import { getAuthoritativeCompanyName } from '../utils/tickerLogos';
 
 interface MultiCurrencyValuationProps {
   currentPrice: number;
@@ -36,24 +37,33 @@ export default function MultiCurrencyValuation({
   const [customFrom, setCustomFrom] = useState<'USD' | 'GBP' | 'EUR'>('USD');
   const [customTo, setCustomTo] = useState<'USD' | 'GBP' | 'EUR'>('GBP');
 
-  const loadRates = async (isManual = false) => {
-    if (isManual) setRefreshing(true);
-    else setLoading(true);
+  const loadRates = async (mode: 'initial' | 'manual' | 'silent' = 'initial') => {
+    if (mode === 'manual') setRefreshing(true);
+    else if (mode === 'initial') setLoading(true);
 
     try {
       const data = await fetchFxRates();
-      setFxData(data);
+      setFxData(prev => {
+        if (!prev) return data;
+        if (
+          prev.gbpToUsd.rate === data.gbpToUsd.rate &&
+          prev.eurToUsd.rate === data.eurToUsd.rate
+        ) {
+          return prev;
+        }
+        return data;
+      });
     } catch (err) {
       console.error('Failed to load FX rates for valuation:', err);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mode === 'initial') setLoading(false);
+      if (mode === 'manual') setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadRates();
-    const interval = setInterval(() => loadRates(true), 60000);
+    loadRates('initial');
+    const interval = setInterval(() => loadRates('silent'), 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -129,12 +139,14 @@ export default function MultiCurrencyValuation({
                 Live FX
               </span>
             </h4>
-            <p className="text-[9px] font-medium text-black/40 dark:text-white/40">Real-time valuation for {ticker}</p>
+            <p className="text-[9px] font-medium text-black/40 dark:text-white/40">
+              Real-time valuation for {ticker} ({getAuthoritativeCompanyName(ticker)})
+            </p>
           </div>
         </div>
 
         <button
-          onClick={() => loadRates(true)}
+          onClick={() => loadRates('manual')}
           disabled={refreshing}
           className="p-1.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black/50 dark:text-white/50 transition-colors"
           title="Refresh FX Rates"
@@ -221,7 +233,7 @@ export default function MultiCurrencyValuation({
         <div className="pt-2 border-t border-black/5 dark:border-white/5 space-y-2">
           <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
             <span>Market Benchmark Rates</span>
-            <span className="font-mono text-[8px] opacity-60">24h Change</span>
+            <span className="font-mono text-[8px] opacity-60">Change</span>
           </div>
 
           <div className="grid grid-cols-2 gap-2">

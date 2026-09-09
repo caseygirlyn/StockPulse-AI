@@ -669,7 +669,7 @@ export default function StockPriceChart({
               strokeWidth={3.5} 
               fillOpacity={1} 
               fill="url(#colorPriceGradient)" 
-              animationDuration={1500}
+              isAnimationActive={false}
             />
 
             {/* 5-Day Moving Average Line */}
@@ -682,7 +682,7 @@ export default function StockPriceChart({
                 strokeWidth={2} 
                 dot={false} 
                 strokeDasharray="4 4"
-                animationDuration={1800}
+                isAnimationActive={false}
               />
             )}
 
@@ -714,7 +714,7 @@ export default function StockPriceChart({
                 strokeWidth={2.5} 
                 dot={false} 
                 strokeDasharray="5 5"
-                animationDuration={2000}
+                isAnimationActive={false}
               />
             )}
           </AreaChart>

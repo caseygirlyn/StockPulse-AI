@@ -1,3 +1,5 @@
+import { resolveTickerLogoUrl, getAuthoritativeCompanyName } from '../utils/tickerLogos';
+
 export interface PortfolioPosition {
   ticker: string;
   avgPrice: number;
@@ -27,6 +29,77 @@ export interface PortfolioPosition {
   date: string;
 }
 
+export const DEFAULT_PORTFOLIO_STARTERS: PortfolioPosition[] = [
+  {
+    ticker: 'RR.L',
+    name: 'Rolls-Royce Holdings plc',
+    avgPrice: 12.50,
+    shares: 250,
+    currency: 'GBP',
+    exchange: 'London Stock Exchange (LSE)',
+    currentPrice: 14.50,
+    previousClose: 14.80,
+    priceChange: -0.30,
+    priceChangePercent: -2.03,
+    trend: 'Bullish',
+    recommendationAction: 'Buy More',
+    logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://rolls-royce.com&size=128',
+    notes: 'Core UK aerospace & defense turnaround play.',
+    date: '2026-09-09T00:00:00.000Z'
+  },
+  {
+    ticker: 'NVDA',
+    name: 'NVIDIA Corporation',
+    avgPrice: 118.50,
+    shares: 25,
+    currency: 'USD',
+    exchange: 'NASDAQ',
+    currentPrice: 128.50,
+    previousClose: 125.80,
+    priceChange: 2.70,
+    priceChangePercent: 2.15,
+    trend: 'Bullish',
+    recommendationAction: 'Buy More',
+    logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://nvidia.com&size=128',
+    notes: 'Foundational AI infrastructure & accelerated computing anchor.',
+    date: '2026-09-09T00:00:00.000Z'
+  },
+  {
+    ticker: 'AAPL',
+    name: 'Apple Inc.',
+    avgPrice: 215.00,
+    shares: 15,
+    currency: 'USD',
+    exchange: 'NASDAQ',
+    currentPrice: 232.40,
+    previousClose: 231.10,
+    priceChange: 1.30,
+    priceChangePercent: 0.56,
+    trend: 'Bullish',
+    recommendationAction: 'Hold',
+    logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://apple.com&size=128',
+    notes: 'Consumer ecosystem lock-in and edge AI upgrade cycle.',
+    date: '2026-09-09T00:00:00.000Z'
+  },
+  {
+    ticker: 'MSFT',
+    name: 'Microsoft Corporation',
+    avgPrice: 410.00,
+    shares: 10,
+    currency: 'USD',
+    exchange: 'NASDAQ',
+    currentPrice: 445.80,
+    previousClose: 443.20,
+    priceChange: 2.60,
+    priceChangePercent: 0.59,
+    trend: 'Bullish',
+    recommendationAction: 'Hold',
+    logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://microsoft.com&size=128',
+    notes: 'Enterprise cloud AI and productivity software moat.',
+    date: '2026-09-09T00:00:00.000Z'
+  }
+];
+
 const LOCAL_STORAGE_KEY = 'stockpulse_portfolio_positions';
 
 // Helper to get cached positions from localStorage
@@ -35,7 +108,12 @@ export function getLocalPortfolio(): PortfolioPosition[] {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(p => ({
+      ...p,
+      name: getAuthoritativeCompanyName(p.ticker, p.name),
+      logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
+    }));
   } catch {
     return [];
   }
@@ -51,21 +129,115 @@ export function setLocalPortfolio(positions: PortfolioPosition[]): void {
 }
 
 export async function fetchPortfolio(): Promise<PortfolioPosition[]> {
+  const localPositions = getLocalPortfolio();
+
   try {
     const res = await fetch('/api/portfolio');
     if (!res.ok) {
       throw new Error(`Server returned ${res.status}`);
     }
     const data = await res.json();
-    const positions: PortfolioPosition[] = Array.isArray(data.positions) ? data.positions : [];
+    const serverPositions: PortfolioPosition[] = Array.isArray(data.positions) ? data.positions : [];
     
-    // Sync to local storage
-    setLocalPortfolio(positions);
-    return positions;
+    // If server has positions, merge them with local storage
+    if (serverPositions.length > 0) {
+      const mergedMap = new Map<string, PortfolioPosition>();
+
+      // Populate local first
+      localPositions.forEach(p => {
+        if (p.ticker) mergedMap.set(p.ticker.toUpperCase(), p);
+      });
+
+      // Merge server positions
+      serverPositions.forEach(p => {
+        if (!p.ticker) return;
+        const key = p.ticker.toUpperCase();
+        const existing = mergedMap.get(key);
+        if (existing) {
+          mergedMap.set(key, {
+            ...existing,
+            ...p,
+            shares: p.shares !== undefined ? p.shares : existing.shares,
+            notes: p.notes || existing.notes
+          });
+        } else {
+          mergedMap.set(key, p);
+        }
+      });
+
+      const finalPositions = Array.from(mergedMap.values()).map(p => ({
+        ...p,
+        name: getAuthoritativeCompanyName(p.ticker, p.name),
+        logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
+      }));
+      setLocalPortfolio(finalPositions);
+
+      // Sync any local-only positions to the server in background
+      localPositions.forEach(localPos => {
+        if (!serverPositions.some(sp => sp.ticker.toUpperCase() === localPos.ticker.toUpperCase())) {
+          fetch('/api/portfolio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localPos)
+          }).catch(() => {});
+        }
+      });
+
+      return finalPositions;
+    }
+
+    // If server returned empty, but local has positions, preserve local and sync to server!
+    if (localPositions.length > 0) {
+      localPositions.forEach(pos => {
+        fetch('/api/portfolio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pos)
+        }).catch(() => {});
+      });
+      return localPositions;
+    }
+
+    // If both server and local are empty, initialize with default starters
+    setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
+    DEFAULT_PORTFOLIO_STARTERS.forEach(pos => {
+      fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pos)
+      }).catch(() => {});
+    });
+
+    return DEFAULT_PORTFOLIO_STARTERS;
   } catch (error) {
     console.warn('Falling back to local storage for portfolio:', error);
-    return getLocalPortfolio();
+    const local = getLocalPortfolio();
+    if (local.length > 0) return local;
+    setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
+    return DEFAULT_PORTFOLIO_STARTERS;
   }
+}
+
+export async function resetToDefaultPortfolio(): Promise<PortfolioPosition[]> {
+  setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { action: 'reset' } }));
+  }
+
+  try {
+    const res = await fetch('/api/portfolio/reset', { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.positions && Array.isArray(data.positions)) {
+        setLocalPortfolio(data.positions);
+        return data.positions;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to call reset API:', err);
+  }
+
+  return DEFAULT_PORTFOLIO_STARTERS;
 }
 
 export async function savePortfolioPosition(position: Partial<PortfolioPosition> & { ticker: string; avgPrice: number }): Promise<PortfolioPosition> {
@@ -75,7 +247,7 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
     avgPrice: position.avgPrice,
     shares: position.shares,
     currency: position.currency || 'USD',
-    name: position.name || cleanTicker,
+    name: getAuthoritativeCompanyName(cleanTicker, position.name),
     exchange: position.exchange,
     lastAnalyzedPrice: position.lastAnalyzedPrice,
     currentPrice: position.currentPrice,
@@ -94,7 +266,7 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
     idealEntry: position.idealEntry,
     stopLoss: position.stopLoss,
     takeProfit: position.takeProfit,
-    logoUrl: position.logoUrl,
+    logoUrl: resolveTickerLogoUrl(cleanTicker, position.logoUrl, position.name),
     notes: position.notes,
     date: position.date || new Date().toISOString()
   };

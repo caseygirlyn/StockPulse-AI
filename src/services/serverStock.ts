@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { getAuthoritativeDomain, resolveTickerLogoUrl, getAuthoritativeCompanyName, KNOWN_TICKER_DOMAINS } from "../utils/tickerLogos.js";
 
 export interface AvwapAthData {
   athPrice: number;
@@ -11,6 +12,8 @@ export interface AvwapAthData {
 
 export interface StockData {
   ticker: string;
+  name?: string;
+  companyName?: string;
   currentPrice: number;
   previousClose: number;
   priceChange: number;
@@ -74,7 +77,7 @@ export interface StockData {
 const stockCache = new Map<string, { data: StockData; timestamp: number }>();
 const CACHE_TTL = 30 * 1000; // 30 seconds server cache for live price responsiveness
 
-async function fetchExchangeRate(fromCurrency: string, toCurrency: string): Promise<number> {
+export async function fetchExchangeRate(fromCurrency: string, toCurrency: string): Promise<number> {
   if (fromCurrency.toUpperCase() === toCurrency.toUpperCase()) return 1.0;
   try {
     const pair = `${fromCurrency.toUpperCase()}${toCurrency.toUpperCase()}=X`;
@@ -262,21 +265,21 @@ export function getFormattedMarketCap(
   }
 
   const marketCapValue = currentPrice * sharesInBillions * 1e9;
-  const suffix = isETF ? ' Net Assets' : '';
 
   if (marketCapValue >= 1e12) {
-    return `${currSymbol}${(marketCapValue / 1e12).toFixed(2)}T${suffix}`;
+    return `${currSymbol}${(marketCapValue / 1e12).toFixed(2)}T`;
   } else if (marketCapValue >= 1e9) {
-    return `${currSymbol}${(marketCapValue / 1e9).toFixed(2)}B${suffix}`;
+    return `${currSymbol}${(marketCapValue / 1e9).toFixed(2)}B`;
   } else if (marketCapValue >= 1e6) {
-    return `${currSymbol}${(marketCapValue / 1e6).toFixed(2)}M${suffix}`;
+    return `${currSymbol}${(marketCapValue / 1e6).toFixed(2)}M`;
   } else {
-    return `${currSymbol}${(marketCapValue / 1e3).toFixed(2)}K${suffix}`;
+    return `${currSymbol}${(marketCapValue / 1e3).toFixed(2)}K`;
   }
 }
 
 interface SingleYahooResult {
   symbol: string;
+  companyName?: string;
   currentPrice: number;
   previousClose: number;
   currency: string;
@@ -309,6 +312,23 @@ export function formatExchangeName(exchangeCode?: string): string {
   return exchangeCode;
 }
 
+export function formatExchangeShortCode(exchangeCode?: string): string {
+  if (!exchangeCode) return 'Live';
+  const code = exchangeCode.trim();
+  const parenMatch = code.match(/\(([^)]+)\)/);
+  if (parenMatch) return parenMatch[1].toUpperCase();
+  const upper = code.toUpperCase();
+  if (upper.includes('LONDON') || upper.includes('LSE') || upper.includes('LON')) return 'LSE';
+  if (upper.includes('NASDAQ') || upper.includes('NMS') || upper.includes('NGS') || upper.includes('NCM')) return 'NASDAQ';
+  if (upper.includes('NYSE') || upper.includes('NYQ')) return 'NYSE';
+  if (upper.includes('FRANKFURT') || upper.includes('XETRA') || upper.includes('GER') || upper.includes('FRA')) return 'XETRA';
+  if (upper.includes('TORONTO') || upper.includes('TSX')) return 'TSX';
+  if (upper.includes('PARIS') || upper.includes('EURONEXT')) return 'EURONEXT';
+  if (upper.includes('CRYPTO') || upper.includes('FX')) return 'FX/CRYPTO';
+  if (code.length > 8) return code.slice(0, 6) + '..';
+  return code;
+}
+
 async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahooResult | null> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbolToFetch)}?interval=1d&range=1y`;
   try {
@@ -335,14 +355,28 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
 
     const validCloses = closes.filter((c): c is number => c !== null && c !== undefined && !isNaN(c));
 
-    let rawCurrentPrice = meta.regularMarketPrice ?? meta.chartPreviousClose ?? (validCloses.length > 0 ? validCloses[validCloses.length - 1] : 0);
-    let rawPreviousClose = meta.previousClose ?? meta.chartPreviousClose ?? (validCloses.length > 1 ? validCloses[validCloses.length - 2] : rawCurrentPrice);
+    let rawCurrentPrice = meta.regularMarketPrice ?? (validCloses.length > 0 ? validCloses[validCloses.length - 1] : 0);
 
     if ((rawCurrentPrice === undefined || rawCurrentPrice <= 0) && validCloses.length > 0) {
       rawCurrentPrice = validCloses[validCloses.length - 1];
     }
 
     if (rawCurrentPrice <= 0) return null;
+
+    // Accurately determine the prior trading day's previous close.
+    // NOTE: meta.chartPreviousClose on a 1-year chart refers to the close 1 year ago, NOT yesterday's close!
+    let rawPreviousClose: number | undefined;
+    if (typeof meta.previousClose === 'number' && meta.previousClose > 0) {
+      rawPreviousClose = meta.previousClose;
+    } else if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+      rawPreviousClose = rawCurrentPrice - meta.fulldayChange;
+    } else if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent) && meta.regularMarketChangePercent !== -100) {
+      rawPreviousClose = rawCurrentPrice / (1 + meta.regularMarketChangePercent / 100);
+    } else if (validCloses.length > 1) {
+      rawPreviousClose = validCloses[validCloses.length - 2];
+    } else {
+      rawPreviousClose = rawCurrentPrice;
+    }
 
     let rawCurrency = (meta.currency || '').trim();
     
@@ -468,6 +502,7 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
 
     return {
       symbol: meta.symbol || symbolToFetch,
+      companyName: meta.longName || meta.shortName,
       currentPrice: Number(currentPrice.toFixed(2)),
       previousClose: Number(previousClose.toFixed(2)),
       currency: nativeCurrency,
@@ -490,11 +525,67 @@ async function fetchSingleYahooChart(symbolToFetch: string): Promise<SingleYahoo
   }
 }
 
+export const COMMON_TICKER_ALIASES: Record<string, string> = {
+  'GORPO': 'GPRO',
+  'GOPRO': 'GPRO',
+  'GOOGLE': 'GOOGL',
+  'ALPHABET': 'GOOGL',
+  'APPLE': 'AAPL',
+  'APPL': 'AAPL',
+  'TESLA': 'TSLA',
+  'MICROSOFT': 'MSFT',
+  'MSF': 'MSFT',
+  'NVIDIA': 'NVDA',
+  'NVDIA': 'NVDA',
+  'AMAZON': 'AMZN',
+  'AMZ': 'AMZN',
+  'META': 'META',
+  'FACEBOOK': 'META',
+  'FB': 'META',
+  'NETFLIX': 'NFLX',
+  'BERKSHIRE': 'BRK-B',
+  'BRKB': 'BRK-B',
+  'BRK.B': 'BRK-B',
+  'BRKA': 'BRK-A',
+  'SP500': 'SPY',
+  'S&P500': 'SPY',
+  'S&P 500': 'SPY',
+  'SPX': 'SPY',
+  'BITCOIN': 'BTC-USD',
+  'BTC': 'BTC-USD',
+  'ETHEREUM': 'ETH-USD',
+  'ETH': 'ETH-USD',
+  'GOLD': 'GLD',
+  'SILVER': 'SLV',
+  'PALANTIR': 'PLTR',
+  'COINBASE': 'COIN',
+  'DISNEY': 'DIS',
+  'BOEING': 'BA',
+  'AMD': 'AMD',
+  'INTEL': 'INTC',
+  'ALIBABA': 'BABA',
+  'SPOTIFY': 'SPOT',
+  'UBER': 'UBER',
+  'AIRBNB': 'ABNB',
+  'ROKU': 'ROKU',
+  'ROBLOX': 'RBLX',
+  'SHOPIFY': 'SHOP',
+  'SQUARE': 'SQ',
+  'BLOCK': 'SQ',
+  'PAYPAL': 'PYPL',
+  'SNAPCHAT': 'SNAP',
+  'SSLN': 'SSLN.L'
+};
+
 export function normalizeSymbol(rawTicker: string): string {
   if (!rawTicker) return '';
   let s = rawTicker.trim().toUpperCase();
   if (s.startsWith('$')) s = s.slice(1).trim();
   s = s.replace('/', '-');
+
+  if (COMMON_TICKER_ALIASES[s]) {
+    return COMMON_TICKER_ALIASES[s];
+  }
   
   if (s.startsWith('LON:') || s.startsWith('LSE:')) {
     s = s.replace(/^(LON|LSE):/, '') + '.L';
@@ -511,6 +602,37 @@ export function normalizeSymbol(rawTicker: string): string {
   }
   
   return s.trim();
+}
+
+async function resolveSymbolWithAI(rawTicker: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || Date.now() < geminiDisabledUntil) return null;
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: `Identify the single correct standard financial stock/ETF ticker symbol for the user search: "${rawTicker}". 
+If this is a typo, company name, or informal abbreviation (e.g. "GORPO" -> "GPRO", "Apple" -> "AAPL", "Google" -> "GOOGL", "Nvdia" -> "NVDA", "SSLN" -> "SSLN.L"), output ONLY the exact uppercase ticker symbol (e.g. "GPRO"). If it cannot be determined, output "UNKNOWN".`,
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        maxOutputTokens: 20
+      }
+    });
+    const candidate = response.text?.trim().toUpperCase().replace(/[^A-Z0-9\.\-]/g, '');
+    if (candidate && candidate !== 'UNKNOWN' && candidate.length <= 10 && candidate !== rawTicker.toUpperCase().trim()) {
+      return candidate;
+    }
+  } catch (err) {
+    console.warn("AI symbol resolution error:", err);
+  }
+  return null;
 }
 
 export async function fetchLiveYahooData(ticker: string): Promise<SingleYahooResult> {
@@ -563,6 +685,17 @@ export async function fetchLiveYahooData(ticker: string): Promise<SingleYahooRes
       }
     } catch (err) {
       console.warn("Yahoo search API fallback error:", err);
+    }
+  }
+
+  // Attempt 6: AI-assisted ticker resolution for typos/company names
+  if (!result) {
+    const aiResolved = await resolveSymbolWithAI(ticker);
+    if (aiResolved) {
+      const aiData = await fetchSingleYahooChart(aiResolved);
+      if (aiData) {
+        result = aiData;
+      }
     }
   }
 
@@ -759,12 +892,19 @@ Calculate stop loss using a moderate, standard 5% stop loss threshold below curr
   const reward = Math.max(0.01, profitTarget - currentPrice);
   const calculatedRiskReward = Number((reward / risk).toFixed(1));
 
-  const website = aiAnalysis.website || `${symbol.toLowerCase()}.com`;
-  const logoUrl = `https://logo.clearbit.com/${website}`;
+  const baseSymbol = symbol.split('.')[0].toUpperCase();
+  const authDomain = getAuthoritativeDomain(symbol);
+  const domain = authDomain || 
+                 KNOWN_TICKER_DOMAINS[symbol.toUpperCase()] || 
+                 KNOWN_TICKER_DOMAINS[baseSymbol] || 
+                 (aiAnalysis.website ? aiAnalysis.website.replace(/^https?:\/\//i, '').replace(/\/.*$/, '') : `${baseSymbol.toLowerCase()}.com`);
+
+  const website = `https://${domain}`;
+  const logoUrl = resolveTickerLogoUrl(symbol, `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=128`);
 
   const defaultNews: StockData["news"] = [
     {
-      title: `${symbol} Live Price Action: Currently trading at ${targetCurrency} ${currentPrice} (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent}% 24h)`,
+      title: `${symbol} Live Price Action: Currently trading at ${targetCurrency} ${currentPrice} (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent}%)`,
       sentiment: priceChangePercent >= 2 ? "very_positive" : priceChangePercent >= 0 ? "positive" : priceChangePercent > -2 ? "negative" : "very_negative",
       url: `https://finance.yahoo.com/quote/${symbol}`,
       score: priceChangePercent >= 0 ? Math.min(95, 60 + Math.round(priceChangePercent * 10)) : Math.max(10, 45 + Math.round(priceChangePercent * 10)),
@@ -880,9 +1020,12 @@ Calculate stop loss using a moderate, standard 5% stop loss threshold below curr
   const formattedExchange = formatExchangeName(yahooData.exchangeName);
   const canonicalTime = new Date(yahooData.marketTime || Date.now()).toISOString();
   const priceSource = `Yahoo Finance (${formattedExchange} Live Market Feed)`;
+  const resolvedFullName = getAuthoritativeCompanyName(symbol, yahooData.companyName);
 
   const stockData: StockData = {
     ticker: yahooData.symbol || symbol,
+    name: resolvedFullName,
+    companyName: resolvedFullName,
     currentPrice,
     previousClose,
     priceChange,
@@ -982,9 +1125,21 @@ export async function getFxDetails(): Promise<FxDataResponse> {
       const closes: (number | null)[] = quote?.close || [];
 
       const rate = meta?.regularMarketPrice ?? 1.28;
-      const previousClose = meta?.chartPreviousClose ?? meta?.previousClose ?? rate;
+      let previousClose = rate;
+      if (typeof meta?.previousClose === 'number' && meta.previousClose > 0) {
+        previousClose = meta.previousClose;
+      } else if (typeof meta?.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+        previousClose = rate - meta.fulldayChange;
+      } else if (typeof meta?.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
+        previousClose = rate / (1 + meta.regularMarketChangePercent / 100);
+      } else {
+        const validC = closes.filter((c): c is number => c !== null && c !== undefined && !isNaN(c));
+        if (validC.length > 1) {
+          previousClose = validC[validC.length - 2];
+        }
+      }
       const change = Number((rate - previousClose).toFixed(4));
-      const changePercent = Number(((change / previousClose) * 100).toFixed(2));
+      const changePercent = previousClose > 0 ? Number(((change / previousClose) * 100).toFixed(2)) : 0;
 
       const history: { date: string; rate: number }[] = [];
       for (let i = 0; i < timestamps.length; i++) {

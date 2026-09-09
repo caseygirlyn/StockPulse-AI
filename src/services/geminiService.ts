@@ -9,6 +9,8 @@ export interface AvwapAthData {
 
 export interface StockData {
   ticker: string;
+  name?: string;
+  companyName?: string;
   currentPrice: number;
   previousClose?: number;
   priceChange?: number;
@@ -205,4 +207,21 @@ export interface FxDataResponse {
 export async function fetchFxRates(): Promise<FxDataResponse> {
   const res = await fetch('/api/fx');
   return await safeJsonFetch<FxDataResponse>(res, 'Failed to fetch FX exchange rates');
+}
+
+export function formatExchangeShortCode(exchangeCode?: string): string {
+  if (!exchangeCode) return 'Live';
+  const code = exchangeCode.trim();
+  const parenMatch = code.match(/\(([^)]+)\)/);
+  if (parenMatch) return parenMatch[1].toUpperCase();
+  const upper = code.toUpperCase();
+  if (upper.includes('LONDON') || upper.includes('LSE') || upper.includes('LON')) return 'LSE';
+  if (upper.includes('NASDAQ') || upper.includes('NMS') || upper.includes('NGS') || upper.includes('NCM')) return 'NASDAQ';
+  if (upper.includes('NYSE') || upper.includes('NYQ')) return 'NYSE';
+  if (upper.includes('FRANKFURT') || upper.includes('XETRA') || upper.includes('GER') || upper.includes('FRA')) return 'XETRA';
+  if (upper.includes('TORONTO') || upper.includes('TSX')) return 'TSX';
+  if (upper.includes('PARIS') || upper.includes('EURONEXT')) return 'EURONEXT';
+  if (upper.includes('CRYPTO') || upper.includes('FX')) return 'FX/CRYPTO';
+  if (code.length > 8) return code.slice(0, 6) + '..';
+  return code;
 }

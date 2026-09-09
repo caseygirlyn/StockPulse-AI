@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { TrendingUp, Sun, Moon, PieChart, Activity } from 'lucide-react';
+import { TrendingUp, Sun, Moon, PieChart, Activity, Sparkles } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { getLocalPortfolio, fetchPortfolio } from '../services/portfolioService';
@@ -29,6 +29,7 @@ export default function Navbar() {
   }, []);
 
   const isAnalysis = location.pathname === '/';
+  const isWatchlist = location.pathname === '/watchlist';
   const isPortfolio = location.pathname === '/portfolio';
 
   return (
@@ -60,36 +61,52 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Navigation Links - Centered/Full width on mobile below brand, inline on desktop */}
+        {/* Navigation Links - Equal 3-column segmented bar on mobile, inline on desktop */}
         <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-          <nav className="flex items-center gap-1.5 bg-black/5 dark:bg-white/5 p-1 rounded-2xl w-full sm:w-auto">
+          <nav className="grid grid-cols-3 sm:flex sm:items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl w-full sm:w-auto">
             <Link
               to="/"
               className={cn(
-                "flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap",
+                "flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 xs:px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[10.5px] xs:text-[11px] sm:text-xs font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
                 isAnalysis 
                   ? "bg-white dark:bg-[#202020] text-black dark:text-white shadow-xs" 
                   : "text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
               )}
             >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Analysis</span>
+              <Activity className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">Analysis</span>
+            </Link>
+
+            <Link
+              to="/watchlist"
+              className={cn(
+                "flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 xs:px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[10.5px] xs:text-[11px] sm:text-xs font-black uppercase tracking-tight sm:tracking-wider transition-all whitespace-nowrap",
+                isWatchlist 
+                  ? "bg-white dark:bg-[#202020] text-black dark:text-white shadow-xs" 
+                  : "text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="whitespace-nowrap">Watchlist</span>
+              <span className="hidden lg:inline-flex px-1 py-0.2 rounded bg-emerald-500/15 text-[8px] font-black text-emerald-700 dark:text-emerald-300 font-mono shrink-0">
+                TOP 20
+              </span>
             </Link>
 
             <Link
               to="/portfolio"
               className={cn(
-                "flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all relative whitespace-nowrap",
+                "flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 xs:px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[10.5px] xs:text-[11px] sm:text-xs font-black uppercase tracking-tight sm:tracking-wider transition-all relative whitespace-nowrap",
                 isPortfolio 
                   ? "bg-white dark:bg-[#202020] text-black dark:text-white shadow-xs" 
                   : "text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
               )}
             >
-              <PieChart className="w-3.5 h-3.5" />
-              <span>Portfolio</span>
+              <PieChart className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">Portfolio</span>
               {portfolioCount > 0 && (
                 <span className={cn(
-                  "px-1.5 py-0.5 rounded-full text-[9px] font-black font-mono ml-0.5",
+                  "px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black font-mono shrink-0 leading-none",
                   isPortfolio 
                     ? "bg-emerald-600 text-white dark:bg-emerald-500 dark:text-black" 
                     : "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"

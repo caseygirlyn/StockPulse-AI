@@ -9,6 +9,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Portfolio from './pages/Portfolio';
+import MarketWatchlist from './pages/MarketWatchlist';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/watchlist" element={<MarketWatchlist />} />
             <Route path="/portfolio" element={<Portfolio />} />
           </Routes>
         </div>

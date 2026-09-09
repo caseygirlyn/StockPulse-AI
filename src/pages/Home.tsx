@@ -29,12 +29,13 @@ import {
   Bookmark,
   Sparkles,
   ChevronRight,
-  Check
+  Check,
+  Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { analyzeStock, getLatestPrice, type StockData } from '../services/geminiService';
+import { analyzeStock, getLatestPrice, formatExchangeShortCode, type StockData } from '../services/geminiService';
 import { 
   fetchPortfolio, 
   savePortfolioPosition, 
@@ -43,6 +44,8 @@ import {
 } from '../services/portfolioService';
 import MultiCurrencyValuation from '../components/MultiCurrencyValuation';
 import StockPriceChart from '../components/StockPriceChart';
+import TickerLogo from '../components/TickerLogo';
+import { getAuthoritativeCompanyName } from '../utils/tickerLogos';
 import { cn, formatCurrency } from '../utils';
 import { useTheme } from '../context/ThemeContext';
 
@@ -162,19 +165,19 @@ export default function Home() {
   // Handle URL parameters for loading positions
   useEffect(() => {
     const t = searchParams.get('ticker');
-    const a = searchParams.get('avgPrice');
-    const s = searchParams.get('shares');
-    const c = searchParams.get('currency');
+    const a = searchParams.get('avgPrice') || '';
+    const s = searchParams.get('shares') || '';
+    const c = searchParams.get('currency') || 'USD';
 
-    if (t && a) {
+    if (t) {
       setTicker(t);
       setAvgPrice(a);
-      setShares(s || '');
-      setCurrency(c || 'USD');
+      setShares(s);
+      setCurrency(c);
       
       // Trigger analysis automatically
       const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-      handleSubmit(fakeEvent, { ticker: t, avgPrice: a, shares: s || '', currency: c || 'USD' });
+      handleSubmit(fakeEvent, { ticker: t, avgPrice: a, shares: s, currency: c });
     }
   }, [searchParams]);
 
@@ -245,15 +248,26 @@ export default function Home() {
     }
   };
 
-  const handleUpdatePrice = async (forceRefresh: boolean = true) => {
+  const handleUpdatePrice = async (forceRefresh: boolean = true, silent: boolean = false) => {
     if (!data || isUpdating) return;
-    setIsUpdating(true);
+    if (!silent) setIsUpdating(true);
     try {
       const latest = await getLatestPrice(data.ticker, currency, forceRefresh);
       const canonicalIso = latest.canonicalTimestamp || latest.marketTimestamp || latest.lastUpdated || new Date().toISOString();
 
       setData(prev => {
         if (!prev) return null;
+
+        // Prevent unnecessary re-render if key financial indicators have not changed
+        if (
+          prev.currentPrice === latest.currentPrice &&
+          prev.priceChange === latest.priceChange &&
+          prev.priceChangePercent === latest.priceChangePercent &&
+          prev.previousClose === latest.previousClose
+        ) {
+          return prev;
+        }
+
         const updatedData = { 
           ...prev, 
           currentPrice: latest.currentPrice,
@@ -284,7 +298,7 @@ export default function Home() {
     } catch (err) {
       console.error("Price update failed:", err);
     } finally {
-      setIsUpdating(false);
+      if (!silent) setIsUpdating(false);
     }
   };
 
@@ -336,10 +350,12 @@ export default function Home() {
     const avg = parseFloat(avgPrice);
     if (isNaN(avg) || avg === 0) return null;
     const qty = parseFloat(shares);
+    if (isNaN(qty) || qty === 0) return null;
     const costBasis = avg * qty;
     const marketValue = current * qty;
     const profit = marketValue - costBasis;
-    return { costBasis, marketValue, profit };
+    const percentReturn = costBasis > 0 ? (profit / costBasis) * 100 : 0;
+    return { costBasis, totalCost: costBasis, marketValue, profit, percentReturn };
   }, [data, avgPrice, shares]);
 
   const chartData = useMemo(() => {
@@ -370,8 +386,8 @@ export default function Home() {
     const pollInterval = setInterval(async () => {
       const isDataSaver = localStorage.getItem('data_saver_mode') === 'true';
       if (document.hidden || !data || loading || isDataSaver) return;
-      await handleUpdatePrice(true);
-    }, 15000);
+      await handleUpdatePrice(false, true);
+    }, 30000);
 
     return () => clearInterval(pollInterval);
   }, [data?.ticker, currency, loading]);
@@ -422,6 +438,11 @@ export default function Home() {
                         onChange={(e) => handleTickerChange(e.target.value)}
                         required
                       />
+                      {ticker.trim() && getAuthoritativeCompanyName(ticker.trim()) !== ticker.trim().toUpperCase() && (
+                        <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 ml-1 truncate">
+                          {getAuthoritativeCompanyName(ticker.trim())}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-1 text-left">
                       <div className="flex items-center justify-between h-4">
@@ -514,11 +535,9 @@ export default function Home() {
                           onClick={() => handleSelectPortfolioPosition(pos)}
                           className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 hover:border-emerald-500/50 p-3 rounded-2xl text-left transition-all hover:shadow-md flex items-center justify-between group cursor-pointer"
                         >
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-black/5 dark:bg-white/5 flex items-center justify-center font-black text-xs group-hover:bg-emerald-500/10 group-hover:text-emerald-600 transition-colors">
-                              {pos.ticker.slice(0, 3)}
-                            </div>
-                            <div>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} size="sm" />
+                            <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-black text-sm tracking-tight">{pos.ticker}</span>
                                 {pos.shares && (
@@ -527,7 +546,13 @@ export default function Home() {
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-black/50 dark:text-white/50 font-medium">
+                              <div 
+                                className="text-[11px] font-semibold text-black/70 dark:text-white/70 truncate max-w-[140px] sm:max-w-[180px] leading-tight"
+                                title={pos.name || getAuthoritativeCompanyName(pos.ticker)}
+                              >
+                                {pos.name || getAuthoritativeCompanyName(pos.ticker)}
+                              </div>
+                              <div className="text-[10px] text-black/50 dark:text-white/50 font-medium mt-0.5">
                                 Stored Avg: <span className="font-bold text-black/70 dark:text-white/70">{formatCurrency(pos.avgPrice, cur)}</span>
                               </div>
                             </div>
@@ -616,13 +641,56 @@ export default function Home() {
           )}
 
         {error && (
-          <div className="max-w-md mx-auto bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 p-4 rounded-2xl flex gap-3 items-start">
-            <AlertCircle className="text-red-600 dark:text-red-500 w-5 h-5 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-bold text-red-900 dark:text-red-400">Analysis Failed</h4>
-              <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
+          <motion.div 
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-xl mx-auto bg-red-50/80 dark:bg-red-500/10 border border-red-200/80 dark:border-red-500/20 p-5 rounded-2xl flex flex-col gap-3 shadow-xs"
+          >
+            <div className="flex gap-3 items-start">
+              <AlertCircle className="text-red-600 dark:text-red-400 w-5 h-5 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="font-bold text-red-950 dark:text-red-300 text-sm">Symbol Not Found or Unavailable</h4>
+                <p className="text-red-800/90 dark:text-red-300/90 text-xs leading-relaxed">{error}</p>
+              </div>
             </div>
-          </div>
+
+            <div className="pt-3 border-t border-red-200/60 dark:border-red-500/20 flex flex-col gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-red-900/60 dark:text-red-400/60">
+                Suggested verified tickers:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { symbol: 'GPRO', label: 'GPRO (GoPro)' },
+                  { symbol: 'AAPL', label: 'AAPL' },
+                  { symbol: 'NVDA', label: 'NVDA' },
+                  { symbol: 'TSLA', label: 'TSLA' },
+                  { symbol: 'MSFT', label: 'MSFT' },
+                  { symbol: 'SPY', label: 'SPY' },
+                  { symbol: 'SSLN.L', label: 'SSLN.L' }
+                ].map(s => (
+                  <button
+                    key={s.symbol}
+                    type="button"
+                    onClick={() => {
+                      const targetAvg = avgPrice && parseFloat(avgPrice) > 0 ? avgPrice : '100';
+                      setTicker(s.symbol);
+                      setError(null);
+                      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+                      handleSubmit(fakeEvent, {
+                        ticker: s.symbol,
+                        avgPrice: targetAvg,
+                        shares: shares || '',
+                        currency
+                      });
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-black/30 border border-red-200 dark:border-red-500/30 text-[11px] font-bold text-red-900 dark:text-red-200 hover:bg-red-100/50 dark:hover:bg-red-500/20 transition-all cursor-pointer font-mono"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
         )}
 
           {data && !loading && (
@@ -634,15 +702,20 @@ export default function Home() {
               className="space-y-6 w-full"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-4">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-black dark:bg-white rounded-2xl flex items-center justify-center shadow-lg shrink-0">
-                      <span className="text-white dark:text-black font-black text-lg">{data.ticker.slice(0, 2)}</span>
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    <TickerLogo ticker={data.ticker} logoUrl={data.logoUrl} size="md" />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-2xl md:text-3xl font-black tracking-tighter">
+                          {data.ticker}
+                        </h2>
+                        <span className="text-xs font-bold text-black/30 dark:text-white/30 uppercase tracking-widest hidden sm:inline">Analysis Report</span>
+                      </div>
+                      <span className="text-xs sm:text-sm font-semibold text-black/60 dark:text-white/60 tracking-tight truncate max-w-xs sm:max-w-md">
+                        {data.name || data.companyName || getAuthoritativeCompanyName(data.ticker)}
+                      </span>
                     </div>
-                    <h2 className="text-2xl md:text-3xl font-black tracking-tighter flex items-center gap-3">
-                      {data.ticker}
-                      <span className="text-sm font-bold text-black/20 dark:text-white/20 uppercase tracking-widest hidden sm:inline">Analysis Report</span>
-                    </h2>
                   </div>
                   <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-100 dark:border-emerald-500/20 shrink-0">
                     <div className={cn(
@@ -650,7 +723,8 @@ export default function Home() {
                       isUpdating ? "bg-emerald-400 animate-ping" : "bg-emerald-500"
                     )} />
                     <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
-                      {data.exchange ? `${data.exchange} Live` : 'Live'}
+                      <span className="md:hidden">{formatExchangeShortCode(data.exchange)} Live</span>
+                      <span className="hidden md:inline">{data.exchange ? `${data.exchange} Live` : 'Live'}</span>
                     </span>
                     <span className="text-[10px] font-bold text-emerald-600/60 dark:text-emerald-500/60 ml-1">
                       {format(lastUpdated, 'HH:mm:ss')}
@@ -658,7 +732,7 @@ export default function Home() {
                     <button 
                       onClick={() => handleUpdatePrice(true)}
                       disabled={isUpdating}
-                      className="p-0.5 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded-full transition-colors group ml-0.5"
+                      className="p-0.5 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded-full transition-colors group ml-0.5 cursor-pointer"
                       title="Refresh Canonical Price"
                     >
                       <RefreshCw className={cn("w-2.5 h-2.5 text-emerald-600/40 dark:text-emerald-500/40 group-hover:text-emerald-600 dark:group-hover:text-emerald-500", isUpdating && "animate-spin")} />
@@ -705,86 +779,245 @@ export default function Home() {
               {/* Main Content Grid with Sidebar Up */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
-                  {/* Summary Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { 
-                        label: 'Current Price', 
-                        value: formatCurrency(data.currentPrice, currency), 
-                        sub: data.priceChangePercent !== undefined
-                          ? `${data.priceChangePercent >= 0 ? '+' : ''}${data.priceChangePercent}% 24h`
-                          : (parseFloat(avgPrice) === 0 ? '' : `${unrealizedGainLoss >= 0 ? '+' : ''}${unrealizedGainLoss.toFixed(2)}%`), 
-                        gain: data.priceChangePercent !== undefined 
-                          ? data.priceChangePercent >= 0 
-                          : (parseFloat(avgPrice) === 0 ? undefined : unrealizedGainLoss >= 0) 
-                      },
-                      ...(portfolioStats ? [{ 
-                        label: 'Portfolio Value', 
-                        value: formatCurrency(portfolioStats.marketValue, currency), 
-                        sub: `${portfolioStats.profit >= 0 ? '+' : ''}${formatCurrency(portfolioStats.profit, currency)}`,
-                        gain: portfolioStats.profit >= 0
-                      }] : []),
-                      { label: 'Stock Trend', value: data.ticker, sub: data.analysis.trend, trend: true },
-                      { label: 'MA5 Indicator', value: formatCurrency(data.ma5, currency), sub: data.currentPrice > data.ma5 ? 'ABOVE' : 'BELOW', indicator: true },
-                      ...(data.avwapAth ? [{
-                        label: 'ATH Anchored VWAP',
-                        value: formatCurrency(data.avwapAth.avwapPrice, currency),
-                        sub: `${data.avwapAth.diffPercent >= 0 ? '+' : ''}${data.avwapAth.diffPercent}% (${data.avwapAth.status.toUpperCase()})`,
-                        gain: data.avwapAth.status === 'above'
-                      }] : []),
-                      ...(data.priceSource ? [{ label: 'Canonical Feed', value: data.exchange || 'Live Feed', sub: 'Verified Quote', badge: true }] : []),
-                      ...(parseFloat(avgPrice) !== 0 ? [{ label: 'Avg Purchase', value: formatCurrency(parseFloat(avgPrice), currency), sub: `${unrealizedGainLoss >= 0 ? '+' : ''}${unrealizedGainLoss.toFixed(2)}% P/L`, gain: unrealizedGainLoss >= 0 }] : []),
-                      ...(data.marketCap ? [{ label: 'Market Cap', value: data.marketCap, sub: 'Valuation' }] : []),
-                      ...(data.peRatio ? [{ label: 'P/E Ratio', value: data.peRatio.toFixed(2), sub: 'Earnings' }] : []),
-                      ...(data.dividendYield ? [{ label: 'Div Yield', value: `${data.dividendYield.toFixed(2)}%`, sub: data.dividendRate ? formatCurrency(data.dividendRate, currency) : 'Annual' }] : []),
-                    ].map((stat, i) => (
-                      <motion.div 
-                        key={i}
-                        variants={itemVariants}
-                        className="bg-white dark:bg-[#141414] p-4 rounded-2xl border border-black/5 dark:border-white/5 shadow-sm hover:shadow-md transition-shadow"
-                      >
-                        <p className="text-[9px] font-black text-black/30 dark:text-white/30 uppercase tracking-[0.15em] mb-1.5">{stat.label}</p>
-                        <div className="flex items-end justify-between flex-wrap gap-1">
-                          <motion.h3 
-                            key={stat.value}
-                            initial={{ opacity: 0.5, y: -5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-lg md:text-xl font-black tracking-tighter"
+                  {/* Merged & Streamlined Summary Cards */}
+                  <div className={cn(
+                    "grid gap-4",
+                    portfolioStats ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"
+                  )}>
+                    {/* Card 1: Market Price & Technical Posture */}
+                    <motion.div 
+                      variants={itemVariants}
+                      className="bg-white dark:bg-[#141414] p-5 rounded-[1.75rem] border border-black/5 dark:border-white/5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5">
+                          <span className="text-[10px] font-black text-black/40 dark:text-white/40 uppercase tracking-widest flex items-center gap-1.5 shrink-0">
+                            <BarChart3 className="w-3.5 h-3.5 text-black/40 dark:text-white/40" />
+                            Market Price
+                          </span>
+                          <div 
+                            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase tracking-wider shrink-0 max-w-full"
+                            title={data.exchange || 'Canonical Exchange'}
                           >
-                            {stat.value}
-                          </motion.h3>
-                          {stat.badge ? (
-                            <div className="px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                              {stat.sub}
-                            </div>
-                          ) : stat.trend ? (
-                            <div className={cn(
-                              "px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase",
-                              data.analysis.trend === 'Bullish' ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : 
-                              data.analysis.trend === 'Bearish' ? "bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400" : "bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-400"
-                            )}>
-                              {stat.sub}
-                            </div>
-                          ) : stat.indicator ? (
-                            <div className={cn(
-                              "text-[8px] font-black px-1 py-0.5 rounded",
-                              data.currentPrice > data.ma5 ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500" : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500"
-                            )}>
-                              {stat.sub}
-                            </div>
-                          ) : stat.sub && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <span className="truncate">{formatExchangeShortCode(data.exchange)}</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-baseline gap-1.5">
+                            <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-black dark:text-white tabular-nums">
+                              {formatCurrency(data.currentPrice, currency)}
+                            </h3>
+                            <span className="text-[11px] font-bold text-black/30 dark:text-white/30 uppercase">
+                              {currency}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 mt-1.5">
                             <span className={cn(
-                              "text-[10px] font-bold flex items-center",
-                              stat.gain === true ? "text-emerald-600 dark:text-emerald-500" : stat.gain === false ? "text-red-600 dark:text-red-500" : "text-black/40 dark:text-white/40"
+                              "inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md border",
+                              (data.priceChange ?? 0) >= 0 
+                                ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" 
+                                : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
                             )}>
-                              {stat.gain === true && <ArrowUpRight className="w-2.5 h-2.5" />}
-                              {stat.gain === false && <ArrowDownRight className="w-2.5 h-2.5" />}
-                              {stat.sub}
+                              {(data.priceChange ?? 0) >= 0 ? <ArrowUpRight className="w-3.5 h-3.5 shrink-0" /> : <ArrowDownRight className="w-3.5 h-3.5 shrink-0" />}
+                              <span>{(data.priceChange ?? 0) >= 0 ? '+' : ''}{formatCurrency(data.priceChange ?? 0, currency)}</span>
+                              <span className="font-semibold opacity-85">({(data.priceChangePercent ?? 0) >= 0 ? '+' : ''}{(data.priceChangePercent ?? 0).toFixed(2)}%)</span>
+                            </span>
+                            <span className="text-[10px] font-semibold text-black/40 dark:text-white/40">Today</span>
+                          </div>
+                        </div>
+
+                        {/* Secondary Metrics: Support & Resistance */}
+                        <div className="grid grid-cols-2 gap-3 mt-3 pt-2.5 border-t border-black/5 dark:border-white/5">
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                              Support
+                            </p>
+                            <p className="text-base font-black tracking-tight text-black dark:text-white tabular-nums">
+                              {data.analysis.support ? formatCurrency(data.analysis.support, currency) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                              Resistance
+                            </p>
+                            <p className="text-base font-black tracking-tight text-black dark:text-white tabular-nums">
+                              {data.analysis.resistance ? formatCurrency(data.analysis.resistance, currency) : 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Integrated Technical Stance Strip */}
+                      <div className="pt-2.5 mt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between text-xs text-black/50 dark:text-white/50">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-black/40 dark:text-white/40 font-bold uppercase text-[9px]">Trend:</span>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider",
+                            data.analysis.trend === 'Bullish' ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : 
+                            data.analysis.trend === 'Bearish' ? "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400" : 
+                            "bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300"
+                          )}>
+                            {data.analysis.trend}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[11px] whitespace-nowrap">
+                          <span className="text-black/40 dark:text-white/40 font-bold uppercase text-[9px]">MA5:</span>
+                          <span className="font-bold text-black/80 dark:text-white/80 tabular-nums">
+                            {formatCurrency(data.ma5, currency)}
+                          </span>
+                          <span className={cn(
+                            "text-[8px] font-black px-1.5 py-0.5 rounded uppercase",
+                            data.currentPrice > data.ma5 ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                          )}>
+                            {data.currentPrice > data.ma5 ? 'Above' : 'Below'}
+                          </span>
+                        </div>
+                      </div>
+                    </motion.div>
+
+                    {/* Card 2: Total Holding Value & Position Return (Integrated) */}
+                    {portfolioStats && (
+                      <motion.div 
+                        variants={itemVariants}
+                        className="bg-white dark:bg-[#141414] p-5 rounded-[1.75rem] border border-black/5 dark:border-white/5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5">
+                            <span className="text-[10px] font-black text-black/40 dark:text-white/40 uppercase tracking-widest flex items-center gap-1.5 shrink-0">
+                              <Wallet className="w-3.5 h-3.5 text-black/40 dark:text-white/40" />
+                              Total Holding Value
+                            </span>
+                            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60 shrink-0">
+                              Position
+                            </span>
+                          </div>
+
+                          <div>
+                            <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-black dark:text-white tabular-nums">
+                              {formatCurrency(portfolioStats.marketValue, currency)}
+                            </h3>
+                            
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md border",
+                                portfolioStats.profit >= 0 
+                                  ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" 
+                                  : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+                              )}>
+                                {portfolioStats.profit >= 0 ? <ArrowUpRight className="w-3.5 h-3.5 shrink-0" /> : <ArrowDownRight className="w-3.5 h-3.5 shrink-0" />}
+                                <span>{portfolioStats.profit >= 0 ? '+' : ''}{formatCurrency(portfolioStats.profit, currency)}</span>
+                                <span className="font-semibold opacity-85">({(portfolioStats.percentReturn ?? 0) >= 0 ? '+' : ''}{(portfolioStats.percentReturn ?? 0).toFixed(2)}%)</span>
+                              </span>
+                              <span className="text-[10px] font-semibold text-black/40 dark:text-white/40">Total Return</span>
+                            </div>
+                          </div>
+
+                          {/* Secondary Metrics: Cost Basis & Avg Purchase */}
+                          <div className="grid grid-cols-2 gap-3 mt-3 pt-2.5 border-t border-black/5 dark:border-white/5">
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                                Cost Basis
+                              </p>
+                              <p className="text-base font-black tracking-tight text-black dark:text-white tabular-nums">
+                                {formatCurrency(portfolioStats.totalCost ?? portfolioStats.costBasis, currency)}
+                              </p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                                Avg Buy
+                              </p>
+                              <p className="text-base font-black tracking-tight text-black dark:text-white tabular-nums">
+                                {formatCurrency(parseFloat(avgPrice), currency)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Integrated Position Metadata Strip */}
+                        <div className="pt-2.5 mt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between text-xs text-black/60 dark:text-white/60">
+                          <span className="font-bold text-black/80 dark:text-white/80 whitespace-nowrap">
+                            {parseFloat(shares).toLocaleString()} {parseFloat(shares) === 1 ? 'share' : 'shares'}
+                          </span>
+                          <span className={cn(
+                            "text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap",
+                            portfolioStats.profit >= 0 
+                              ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" 
+                              : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"
+                          )}>
+                            {portfolioStats.profit >= 0 ? '+' : ''}{formatCurrency(portfolioStats.profit, currency)} P/L
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Card 3: Unified Valuation & Fundamentals */}
+                    <motion.div 
+                      variants={itemVariants}
+                      className={cn(
+                        "bg-white dark:bg-[#141414] p-5 rounded-[1.75rem] border border-black/5 dark:border-white/5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between",
+                        portfolioStats ? "sm:col-span-2 xl:col-span-1" : ""
+                      )}
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5">
+                          <span className="text-[10px] font-black text-black/40 dark:text-white/40 uppercase tracking-widest flex items-center gap-1.5 shrink-0">
+                            <Target className="w-3.5 h-3.5 text-black/40 dark:text-white/40" />
+                            Fundamentals
+                          </span>
+                          {data.avwapAth && (
+                            <span className={cn(
+                              "text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border shrink-0",
+                              data.avwapAth.status === 'above' ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+                            )}>
+                              ATH VWAP {data.avwapAth.diffPercent >= 0 ? '+' : ''}{data.avwapAth.diffPercent}%
                             </span>
                           )}
                         </div>
-                      </motion.div>
-                    ))}
+
+                        {/* Primary Metric: Market Cap */}
+                        <div>
+                          <p className="text-2xl sm:text-3xl font-black tracking-tight text-black dark:text-white tabular-nums">
+                            {data.marketCap || 'N/A'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md border bg-black/[0.03] dark:bg-white/[0.05] text-black/70 dark:text-white/70 border-black/5 dark:border-white/10 whitespace-nowrap">
+                              Market Cap
+                            </span>
+                            <span className="text-[10px] font-semibold text-black/40 dark:text-white/40">Valuation</span>
+                          </div>
+                        </div>
+
+                        {/* Next Line: P/E Ratio & Div Yield */}
+                        <div className="grid grid-cols-2 gap-3 mt-3 pt-2.5 border-t border-black/5 dark:border-white/5">
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                              P/E Ratio
+                            </p>
+                            <p className="text-base font-black tracking-tight text-black dark:text-white tabular-nums">
+                              {data.peRatio ? `${data.peRatio.toFixed(2)}x` : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40 mb-0.5">
+                              Div Yield
+                            </p>
+                            <p className="text-base font-black tracking-tight text-emerald-600 dark:text-emerald-400 tabular-nums">
+                              {data.dividendYield !== undefined ? `${data.dividendYield.toFixed(2)}%` : 'None'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Integrated Fundamentals Footer Strip */}
+                      <div className="pt-2.5 mt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between text-xs text-black/50 dark:text-white/50">
+                        <span className="truncate">ATH VWAP: <strong className="font-bold text-black/70 dark:text-white/70">{data.avwapAth ? formatCurrency(data.avwapAth.avwapPrice, currency) : 'Canonical'}</strong></span>
+                        <span className="text-[10px] font-semibold text-black/40 dark:text-white/40 whitespace-nowrap ml-1">{data.dividendRate ? `${formatCurrency(data.dividendRate, currency)}/yr` : 'Annualized'}</span>
+                      </div>
+                    </motion.div>
                   </div>
 
                   {/* Chart Section */}
@@ -1099,7 +1332,7 @@ export default function Home() {
                                 Risk/Reward
                               </p>
                               <p className="text-xs font-black font-mono text-black dark:text-white mt-0.5">
-                                1:{data.recommendation.riskRewardRatio.toFixed(1)}
+                                1:{typeof data.recommendation.riskRewardRatio === 'number' ? data.recommendation.riskRewardRatio.toFixed(1) : (data.recommendation.riskRewardRatio || '2.0')}
                               </p>
                             </div>
                             <div>
