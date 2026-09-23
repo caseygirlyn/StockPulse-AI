@@ -14,8 +14,9 @@ import { TOP_20_RECOMMENDED_STOCKS, WatchlistItem } from './src/services/watchli
 import { resolveTickerLogoUrl, getAuthoritativeCompanyName } from './src/utils/tickerLogos.js';
 
 const DATA_FILE = path.join(process.cwd(), 'data.json');
+const DATA_BACKUP_FILE = path.join(process.cwd(), 'data.json.bak');
 
-export const DEFAULT_PORTFOLIO_POSITIONS = [
+export const SAMPLE_PORTFOLIO_POSITIONS = [
   {
     ticker: 'RR.L',
     name: 'Rolls-Royce Holdings plc',
@@ -29,8 +30,13 @@ export const DEFAULT_PORTFOLIO_POSITIONS = [
     priceChangePercent: -2.03,
     trend: 'Bullish',
     recommendationAction: 'Buy More',
+    dividendYield: 0.76,
+    dividendRate: 0.11,
+    dividendAmount: 0.06,
+    exDividendDate: '2026-08-06',
+    paymentDate: '2026-09-18',
     logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://rolls-royce.com&size=128',
-    notes: 'Core UK aerospace & defense turnaround play.',
+    notes: 'Core UK aerospace & defense champion. H1 2026 operating profit £2.53B, FCF £1.96B, net cash £2.14B. Statutory EPS 69.41p, interim div 6p payable 18 Sep 2026.',
     date: new Date().toISOString()
   },
   {
@@ -46,6 +52,10 @@ export const DEFAULT_PORTFOLIO_POSITIONS = [
     priceChangePercent: 2.15,
     trend: 'Bullish',
     recommendationAction: 'Buy More',
+    dividendYield: 0.23,
+    dividendRate: 0.52,
+    dividendAmount: 0.25,
+    exDividendDate: '2026-09-10',
     logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://nvidia.com&size=128',
     notes: 'Foundational AI infrastructure & accelerated computing anchor.',
     date: new Date().toISOString()
@@ -63,6 +73,10 @@ export const DEFAULT_PORTFOLIO_POSITIONS = [
     priceChangePercent: 0.56,
     trend: 'Bullish',
     recommendationAction: 'Hold',
+    dividendYield: 0.32,
+    dividendRate: 1.06,
+    dividendAmount: 0.27,
+    exDividendDate: '2026-08-10',
     logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://apple.com&size=128',
     notes: 'Consumer ecosystem lock-in and edge AI upgrade cycle.',
     date: new Date().toISOString()
@@ -80,63 +94,110 @@ export const DEFAULT_PORTFOLIO_POSITIONS = [
     priceChangePercent: 0.59,
     trend: 'Bullish',
     recommendationAction: 'Hold',
+    dividendYield: 0.73,
+    dividendRate: 3.64,
+    dividendAmount: 0.91,
+    exDividendDate: '2026-08-20',
     logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://microsoft.com&size=128',
     notes: 'Enterprise cloud AI and productivity software moat.',
     date: new Date().toISOString()
   }
 ];
 
+// Clean empty slate on first load
+export const DEFAULT_PORTFOLIO_POSITIONS: any[] = [];
+
 interface PortfolioData {
   hasInitialized?: boolean;
   positions: any[];
 }
 
-async function readPortfolioData(): Promise<PortfolioData> {
+let inMemoryPortfolio: PortfolioData | null = null;
+let lastDataFileMtime = 0;
+let writeQueue: Promise<void> = Promise.resolve();
+
+function extractValidJson(raw: string): any {
   try {
-    const dataStr = await fs.readFile(DATA_FILE, 'utf-8');
-    if (!dataStr || !dataStr.trim()) {
-      const defaultData: PortfolioData = { 
-        hasInitialized: true, 
-        positions: JSON.parse(JSON.stringify(DEFAULT_PORTFOLIO_POSITIONS)) 
-      };
-      await fs.writeFile(DATA_FILE, JSON.stringify(defaultData, null, 2));
-      return defaultData;
+    return JSON.parse(raw);
+  } catch (initialErr) {
+    // Attempt recovery if extra trailing characters exist after valid JSON object
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      const trimmed = raw.substring(start, end + 1);
+      return JSON.parse(trimmed);
     }
-    const parsed = JSON.parse(dataStr);
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.positions)) {
-      const defaultData: PortfolioData = { 
-        hasInitialized: true, 
-        positions: JSON.parse(JSON.stringify(DEFAULT_PORTFOLIO_POSITIONS)) 
-      };
-      await fs.writeFile(DATA_FILE, JSON.stringify(defaultData, null, 2));
-      return defaultData;
+    throw initialErr;
+  }
+}
+
+async function readPortfolioData(): Promise<PortfolioData> {
+  // Check if data.json was modified on disk since last read
+  let fileChangedOnDisk = false;
+  try {
+    const stat = await fs.stat(DATA_FILE);
+    if (stat.mtimeMs !== lastDataFileMtime) {
+      fileChangedOnDisk = true;
+      lastDataFileMtime = stat.mtimeMs;
     }
-    // If positions are empty and not explicitly marked as initialized by user, populate defaults
-    if (parsed.positions.length === 0 && !parsed.hasInitialized) {
-      parsed.hasInitialized = true;
-      parsed.positions = JSON.parse(JSON.stringify(DEFAULT_PORTFOLIO_POSITIONS));
-      await fs.writeFile(DATA_FILE, JSON.stringify(parsed, null, 2));
+  } catch {
+    fileChangedOnDisk = true;
+  }
+
+  // If already loaded in memory and file hasn't changed on disk, return deep copy
+  if (!fileChangedOnDisk && inMemoryPortfolio && Array.isArray(inMemoryPortfolio.positions)) {
+    return JSON.parse(JSON.stringify(inMemoryPortfolio));
+  }
+
+  let parsed: any = null;
+
+  // 1. Try reading primary DATA_FILE
+  try {
+    const raw = await fs.readFile(DATA_FILE, 'utf-8');
+    if (raw && raw.trim()) {
+      parsed = extractValidJson(raw);
     }
-    // Ensure all positions have verified, authoritative logo URLs and company names
-    parsed.positions = parsed.positions.map((p: any) => ({
-      ...p,
-      name: getAuthoritativeCompanyName(p.ticker, p.name),
-      logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
-    }));
-    return parsed;
-  } catch (err) {
-    console.warn('Recovering corrupted or missing portfolio data.json:', err);
+  } catch {
+    // 2. Try reading backup file if primary failed or was corrupted
+    try {
+      const backupRaw = await fs.readFile(DATA_BACKUP_FILE, 'utf-8');
+      if (backupRaw && backupRaw.trim()) {
+        parsed = extractValidJson(backupRaw);
+      }
+    } catch {
+      // backup not available
+    }
+  }
+
+  // 3. Fallback to clean empty data if neither file could be parsed
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.positions)) {
     const defaultData: PortfolioData = { 
       hasInitialized: true, 
-      positions: JSON.parse(JSON.stringify(DEFAULT_PORTFOLIO_POSITIONS)) 
+      positions: [] 
     };
-    try {
-      await fs.writeFile(DATA_FILE, JSON.stringify(defaultData, null, 2));
-    } catch (writeErr) {
-      console.error('Failed to reset portfolio data file:', writeErr);
-    }
+    await writePortfolioData(defaultData);
     return defaultData;
   }
+
+  // Ensure initialized flag is saved cleanly
+  if (!parsed.hasInitialized) {
+    parsed.hasInitialized = true;
+    await writePortfolioData(parsed);
+  }
+
+  // Ensure all positions have verified, authoritative logo URLs and company names
+  parsed.positions = parsed.positions.map((p: any) => ({
+    ...p,
+    name: getAuthoritativeCompanyName(p.ticker, p.name),
+    logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
+  }));
+
+  inMemoryPortfolio = JSON.parse(JSON.stringify(parsed));
+  try {
+    const stat = await fs.stat(DATA_FILE);
+    lastDataFileMtime = stat.mtimeMs;
+  } catch {}
+  return parsed;
 }
 
 async function writePortfolioData(data: PortfolioData): Promise<void> {
@@ -144,7 +205,37 @@ async function writePortfolioData(data: PortfolioData): Promise<void> {
     data = { hasInitialized: true, positions: [] };
   }
   data.hasInitialized = true;
-  await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+
+  // Keep in-memory cache updated immediately so subsequent reads never block
+  inMemoryPortfolio = JSON.parse(JSON.stringify(data));
+
+  // Serialize file writes through queue to prevent concurrent race conditions
+  writeQueue = writeQueue.then(async () => {
+    try {
+      const jsonStr = JSON.stringify(data, null, 2);
+      const tempFile = `${DATA_FILE}.tmp.${Date.now()}`;
+      
+      // 1. Write to atomic temp file first
+      await fs.writeFile(tempFile, jsonStr, 'utf-8');
+
+      // 2. Keep backup of current valid file before replacement
+      try {
+        await fs.copyFile(DATA_FILE, DATA_BACKUP_FILE);
+      } catch {}
+
+      // 3. Atomically replace DATA_FILE with temp file
+      await fs.rename(tempFile, DATA_FILE);
+
+      try {
+        const stat = await fs.stat(DATA_FILE);
+        lastDataFileMtime = stat.mtimeMs;
+      } catch {}
+    } catch (err) {
+      console.error('Error persisting portfolio data to disk (data.json):', err);
+    }
+  });
+
+  await writeQueue;
 }
 
 async function ensureDataFile() {
@@ -179,8 +270,9 @@ async function startServer() {
       const avgPrice = parseFloat(req.query.avgPrice as string) || 0;
       const currency = (req.query.currency as string) || 'USD';
       const forceRefresh = req.query.forceRefresh === 'true';
+      const riskMode = (req.query.riskMode as string) || 'aggressive';
 
-      const data = await getStockAnalysis(tickerParam, avgPrice, currency, forceRefresh);
+      const data = await getStockAnalysis(tickerParam, avgPrice, currency, forceRefresh, riskMode);
       res.json(data);
     } catch (error: any) {
       console.error(`Error in stock analysis:`, error?.message || error);
@@ -258,6 +350,10 @@ async function startServer() {
         marketTimestamp: string;
         canonicalTimestamp: string;
         lastUpdated: string;
+        dividendYield?: number;
+        dividendRate?: number;
+        dividendAmount?: number;
+        exDividendDate?: string;
       }> = {};
       
       await Promise.all(
@@ -275,7 +371,11 @@ async function startServer() {
               exchange: data.exchange,
               marketTimestamp: data.marketTimestamp,
               canonicalTimestamp: data.canonicalTimestamp,
-              lastUpdated: data.lastUpdated
+              lastUpdated: data.lastUpdated,
+              dividendYield: data.dividendYield,
+              dividendRate: data.dividendRate,
+              dividendAmount: data.dividendAmount,
+              exDividendDate: data.exDividendDate
             };
           } catch (e) {
             console.warn(`Failed to fetch price for ${t}:`, e);
@@ -457,7 +557,7 @@ async function startServer() {
       };
 
       // Auto-lookup live market details if missing
-      if (!newPosition.currentPrice || !newPosition.exchange) {
+      if (!newPosition.currentPrice || !newPosition.exchange || newPosition.dividendYield === undefined) {
         try {
           const live = await fetchLiveYahooData(cleanTicker);
           if (live && live.currentPrice) {
@@ -469,6 +569,18 @@ async function startServer() {
             }
             if (!newPosition.exchange && live.exchangeName) newPosition.exchange = formatExchangeName(live.exchangeName);
             if (!newPosition.currency && live.currency) newPosition.currency = live.currency;
+            if (newPosition.dividendYield === undefined && live.rawDividendYield !== undefined) {
+              newPosition.dividendYield = live.rawDividendYield;
+            }
+            if (newPosition.dividendRate === undefined && live.rawDividendRate !== undefined) {
+              newPosition.dividendRate = live.rawDividendRate;
+            }
+            if (newPosition.dividendAmount === undefined && live.rawDividendAmount !== undefined) {
+              newPosition.dividendAmount = live.rawDividendAmount;
+            }
+            if (!newPosition.exDividendDate && live.exDividendDate) {
+              newPosition.exDividendDate = live.exDividendDate;
+            }
           }
         } catch (lookupErr) {
           console.warn(`Could not auto-fetch live data for new position ${cleanTicker}:`, lookupErr);
@@ -497,16 +609,109 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/portfolio/:ticker', async (req, res) => {
+  app.post('/api/portfolio/batch', async (req, res) => {
     try {
-      const ticker = (req.params.ticker || '').trim().toUpperCase();
+      const rawList = Array.isArray(req.body) ? req.body : (req.body?.positions || []);
+      if (!Array.isArray(rawList) || rawList.length === 0) {
+        return res.json({ success: true, count: 0 });
+      }
+
       const data = await readPortfolioData();
+
+      for (const body of rawList) {
+        const cleanTicker = (body.ticker || '').trim().toUpperCase();
+        if (!cleanTicker) continue;
+
+        const newPosition: any = {
+          ticker: cleanTicker,
+          avgPrice: parseFloat(body.avgPrice) || 0,
+          shares: body.shares !== undefined ? parseFloat(body.shares) : undefined,
+          currency: body.currency || 'USD',
+          name: getAuthoritativeCompanyName(cleanTicker, body.name),
+          exchange: body.exchange,
+          lastAnalyzedPrice: body.lastAnalyzedPrice ? parseFloat(body.lastAnalyzedPrice) : undefined,
+          currentPrice: body.currentPrice ? parseFloat(body.currentPrice) : undefined,
+          previousClose: body.previousClose,
+          priceChange: body.priceChange,
+          priceChangePercent: body.priceChangePercent,
+          trend: body.trend,
+          recommendationAction: body.recommendationAction,
+          ma5: body.ma5,
+          avwapAthPrice: body.avwapAthPrice,
+          dividendYield: body.dividendYield,
+          dividendRate: body.dividendRate,
+          dividendAmount: body.dividendAmount,
+          exDividendDate: body.exDividendDate,
+          paymentDate: body.paymentDate,
+          idealEntry: body.idealEntry,
+          stopLoss: body.stopLoss,
+          takeProfit: body.takeProfit,
+          logoUrl: resolveTickerLogoUrl(cleanTicker, body.logoUrl, body.name),
+          notes: body.notes,
+          date: body.date || new Date().toISOString()
+        };
+
+        const existingIndex = data.positions.findIndex((p: any) => p.ticker?.toUpperCase() === cleanTicker);
+        if (existingIndex > -1) {
+          data.positions[existingIndex] = {
+            ...data.positions[existingIndex],
+            ...newPosition,
+            shares: newPosition.shares !== undefined ? newPosition.shares : data.positions[existingIndex].shares,
+            notes: newPosition.notes !== undefined ? newPosition.notes : data.positions[existingIndex].notes
+          };
+        } else {
+          data.positions.unshift(newPosition);
+        }
+      }
+
+      await writePortfolioData(data);
+      res.json({ success: true, count: data.positions.length, positions: data.positions });
+    } catch (error: any) {
+      console.error('Failed to batch save portfolio positions:', error);
+      res.status(500).json({ error: 'Failed to batch save portfolio data' });
+    }
+  });
+
+  const handleDeletePortfolio = async (req: express.Request, res: express.Response) => {
+    try {
+      const ticker = (
+        req.params.ticker || 
+        (req.params as any)[0] || 
+        (req.query.ticker as string) || 
+        req.body?.ticker || 
+        ''
+      ).trim().toUpperCase();
+
+      if (!ticker) {
+        return res.status(400).json({ error: 'Ticker symbol is required' });
+      }
+
+      const data = await readPortfolioData();
+      const initialCount = data.positions.length;
       data.positions = data.positions.filter((p: any) => p.ticker?.toUpperCase() !== ticker);
       await writePortfolioData(data);
-      res.json({ success: true, ticker });
+      res.json({ success: true, ticker, deleted: initialCount > data.positions.length });
     } catch (error: any) {
       console.error('Failed to delete portfolio position:', error);
       res.status(500).json({ error: 'Failed to delete portfolio data' });
+    }
+  };
+
+  app.delete('/api/portfolio/:ticker', handleDeletePortfolio);
+  app.delete('/api/portfolio', handleDeletePortfolio);
+  app.delete('/api/portfolio/*', handleDeletePortfolio);
+
+  app.post('/api/portfolio/clear', async (req, res) => {
+    try {
+      const data = {
+        hasInitialized: true,
+        positions: []
+      };
+      await writePortfolioData(data);
+      res.json({ success: true, positions: [] });
+    } catch (error: any) {
+      console.error('Failed to clear portfolio:', error);
+      res.status(500).json({ error: 'Failed to clear portfolio data' });
     }
   });
 
@@ -514,7 +719,7 @@ async function startServer() {
     try {
       const data = {
         hasInitialized: true,
-        positions: JSON.parse(JSON.stringify(DEFAULT_PORTFOLIO_POSITIONS))
+        positions: JSON.parse(JSON.stringify(SAMPLE_PORTFOLIO_POSITIONS))
       };
       await writePortfolioData(data);
       res.json({ success: true, positions: data.positions });
@@ -525,7 +730,7 @@ async function startServer() {
   });
 
   // Catch-all for unmatched API routes to ensure JSON response instead of HTML SPA fallback
-  app.all('/api/*', (req, res) => {
+  app.use('/api', (req, res) => {
     res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
   });
 

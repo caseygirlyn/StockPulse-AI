@@ -112,30 +112,41 @@ export default function MarketWatchlist() {
     
     // Load live watchlist data from API
     setLoading(true);
-    fetchMarketWatchlist('USD')
-      .then((data) => {
-        if (data && data.length > 0) {
-          setItems(data);
-          // Check for triggered alerts immediately
-          const priceMap: Record<string, number> = {};
-          data.forEach(item => {
-            priceMap[item.ticker.toUpperCase()] = item.currentPrice;
-          });
-          const triggered = checkTriggeredAlerts(priceMap);
-          if (triggered.length > 0) {
-            setTriggeredAlertsList(triggered);
+    const loadWatchlistData = (showSpinner = false) => {
+      if (showSpinner) setLoading(true);
+      fetchMarketWatchlist('USD')
+        .then((data) => {
+          if (data && data.length > 0) {
+            setItems(data);
+            // Check for triggered alerts immediately
+            const priceMap: Record<string, number> = {};
+            data.forEach(item => {
+              priceMap[item.ticker.toUpperCase()] = item.currentPrice;
+            });
+            const triggered = checkTriggeredAlerts(priceMap);
+            if (triggered.length > 0) {
+              setTriggeredAlertsList(triggered);
+            }
           }
-        }
-      })
-      .catch((err) => {
-        console.warn('Using local watchlist fallback:', err);
-      })
-      .finally(() => {
-        setLoading(false);
-        setLastRefreshed(new Date());
-      });
+        })
+        .catch((err) => {
+          console.warn('Using local watchlist fallback:', err);
+        })
+        .finally(() => {
+          setLoading(false);
+          setLastRefreshed(new Date());
+        });
+    };
+
+    loadWatchlistData(true);
+
+    // Auto-update watchlist every 60 seconds in the background
+    const autoRefreshTimer = setInterval(() => {
+      loadWatchlistData(false);
+    }, 60000);
 
     return () => {
+      clearInterval(autoRefreshTimer);
       window.removeEventListener('portfolio_updated', refreshPortfolioStatus);
       window.removeEventListener('price_alerts_updated', refreshAlerts);
     };
@@ -424,7 +435,7 @@ export default function MarketWatchlist() {
               Market Watchlist
             </h1>
             <p className="text-sm md:text-base font-medium text-black/60 dark:text-white/60 leading-relaxed">
-              Top 20 high-conviction AI stock recommendations, market leaders, and tactical buy targets. Configure real-time price alerts to receive instant notifications when key entry or take-profit targets are touched.
+              Top 20 high-confidence AI stock recommendations, market leaders, and tactical buy targets. Configure real-time price alerts to receive instant notifications when key entry or take-profit targets are touched.
             </p>
           </div>
 
@@ -437,7 +448,7 @@ export default function MarketWatchlist() {
             </div>
 
             <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Avg Conviction</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Avg Confidence</p>
               <p className="text-xl font-black text-black dark:text-white mt-0.5">{averageConviction}%</p>
               <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">AI Confidence</p>
             </div>
@@ -459,15 +470,27 @@ export default function MarketWatchlist() {
             </button>
 
             <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col justify-between">
-              <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Data Sync</p>
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-xs font-bold text-black dark:text-white transition-all cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={cn("w-3 h-3 text-emerald-600 dark:text-emerald-400", loading && "animate-spin")} />
-                <span>Refresh</span>
-              </button>
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Data Sync</p>
+                <span className="inline-flex items-center gap-1 text-[8px] font-bold text-emerald-600 dark:text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Auto 60s
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-1.5 mt-1">
+                <span className="text-[10px] font-medium text-black/50 dark:text-white/50">
+                  {lastRefreshed ? lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Live'}
+                </span>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  title="Force refresh live quotes"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-xs font-bold text-black dark:text-white transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("w-3 h-3 text-emerald-600 dark:text-emerald-400", loading && "animate-spin")} />
+                  <span>Sync</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -527,8 +550,8 @@ export default function MarketWatchlist() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search ticker, theme, or catalyst..."
-              className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-black dark:text-white placeholder:text-black/30 dark:placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder="Search ticker (e.g. NVDA), theme (AI, Semis), or catalyst..."
+              className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
             />
             {searchQuery && (
               <button 
@@ -549,7 +572,7 @@ export default function MarketWatchlist() {
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
                 className="bg-black/5 dark:bg-white/5 border-none rounded-xl px-3 py-2 text-xs font-bold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
               >
-                <option value="conviction_desc">Highest Conviction</option>
+                <option value="conviction_desc">Highest Confidence</option>
                 <option value="upside_desc">Highest Upside Target</option>
                 <option value="change_desc">Top Daily Gainers</option>
                 <option value="change_asc">Top Daily Dips</option>
@@ -625,7 +648,7 @@ export default function MarketWatchlist() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.04 }}
-                className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 rounded-[2rem] p-6 shadow-xs flex flex-col justify-between hover:border-black/20 dark:hover:border-white/20 transition-all duration-300 group"
+                className="bg-white dark:bg-[#121212] border border-neutral-200/80 dark:border-neutral-800 rounded-2xl p-6 shadow-xs flex flex-col justify-between hover:border-neutral-300 dark:hover:border-neutral-700 transition-all duration-300 group"
               >
                 <div className="space-y-4">
                   {/* Card Header: Ticker, Category, Alert Button & Conviction Pill */}
@@ -661,7 +684,7 @@ export default function MarketWatchlist() {
                         <span>{item.convictionScore}%</span>
                       </div>
                       <p className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 mt-1">
-                        AI Conviction
+                        AI Confidence
                       </p>
                     </div>
                   </div>
@@ -808,13 +831,13 @@ export default function MarketWatchlist() {
 
       {/* Table View Layout */}
       {viewMode === 'table' && filteredAndSortedItems.length > 0 && (
-        <div className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 rounded-[2rem] overflow-hidden shadow-xs">
+        <div className="bg-white dark:bg-[#121212] border border-neutral-200/80 dark:border-neutral-800 rounded-2xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/5 dark:border-white/5 text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
                 <tr>
                   <th className="py-4 px-6">Asset & Sector</th>
-                  <th className="py-4 px-4">AI Conviction</th>
+                  <th className="py-4 px-4">AI Confidence</th>
                   <th className="py-4 px-4">Action Signal</th>
                   <th className="py-4 px-4 text-right">Market Price</th>
                   <th className="py-4 px-4 text-right">Change</th>
@@ -1057,8 +1080,8 @@ export default function MarketWatchlist() {
 
               {/* Form Controls */}
               <form onSubmit={handleSaveAlert} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="w-full">
                     <label className="block text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40 mb-1.5">
                       Target Price ({alertModalItem.currency})
                     </label>
@@ -1071,12 +1094,12 @@ export default function MarketWatchlist() {
                         setAlertTargetPrice(e.target.value);
                         setAlertType('CUSTOM');
                       }}
-                      placeholder={alertModalItem.takeProfit.toString()}
-                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder={`e.g. ${alertModalItem.takeProfit}`}
+                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 placeholder:font-sans placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="w-full">
                     <label className="block text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40 mb-1.5">
                       Trigger Condition
                     </label>
@@ -1099,8 +1122,8 @@ export default function MarketWatchlist() {
                     type="text"
                     value={alertNotes}
                     onChange={(e) => setAlertNotes(e.target.value)}
-                    placeholder="e.g., Take partial profits, scale into position..."
-                    className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-medium text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. Take 50% profit, trail stop to breakeven..."
+                    className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-medium text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
 
@@ -1265,7 +1288,7 @@ export default function MarketWatchlist() {
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-black font-mono text-black dark:text-white">{modalItem.ticker}</span>
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300">
-                      {modalItem.convictionScore}% AI Conviction
+                      {modalItem.convictionScore}% AI Confidence
                     </span>
                   </div>
                   <p className="text-xs font-bold text-black/60 dark:text-white/60">{modalItem.name}</p>
@@ -1297,8 +1320,8 @@ export default function MarketWatchlist() {
 
               {/* Form Controls */}
               <form onSubmit={handleSaveToPortfolio} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="w-full">
                     <label className="block text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40 mb-1.5">
                       Avg Entry Price ({modalItem.currency})
                     </label>
@@ -1308,12 +1331,12 @@ export default function MarketWatchlist() {
                       required
                       value={modalAvgPrice}
                       onChange={(e) => setModalAvgPrice(e.target.value)}
-                      placeholder={modalItem.idealEntry.toString()}
-                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder={`e.g. ${modalItem.idealEntry}`}
+                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 placeholder:font-sans placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
 
-                  <div>
+                  <div className="w-full">
                     <label className="block text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40 mb-1.5">
                       Quantity (Shares)
                     </label>
@@ -1324,21 +1347,22 @@ export default function MarketWatchlist() {
                       required
                       value={modalShares}
                       onChange={(e) => setModalShares(e.target.value)}
-                      placeholder="10"
-                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="e.g. 20 shares"
+                      className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 placeholder:font-sans placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40 mb-1.5">
-                    Investment Thesis / Strategy Notes
+                    Investment Thesis / Strategy Notes (Optional)
                   </label>
                   <textarea
                     rows={2}
                     value={modalNotes}
                     onChange={(e) => setModalNotes(e.target.value)}
-                    className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2 text-xs font-medium text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. Scaling in after support retest; planned stop loss below 50-day moving average..."
+                    className="w-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl px-3.5 py-2 text-xs font-medium text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
 

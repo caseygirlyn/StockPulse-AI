@@ -7,6 +7,61 @@ export interface AvwapAthData {
   explanation: string;
 }
 
+export interface EarningsEstimatesData {
+  earningsDate?: string;
+  daysUntilEarnings?: number;
+  fiscalQuarter?: string;
+  epsEstimate?: string;
+  epsPriorYear?: string;
+  epsGrowthYoY?: string;
+  revenueEstimate?: string;
+  revenueGrowthYoY?: string;
+  revisions?: string;
+  revisionsSentiment?: 'bullish' | 'neutral' | 'bearish';
+  impliedMove?: string;
+  lastQuarterSurprise?: string;
+  consensusRevisions?: string;
+  keyRisk?: string;
+  catalystThesis?: string;
+}
+
+export interface ExtendedHoursData {
+  isMarketOpen: boolean;
+  sessionType: 'PRE' | 'POST' | 'REGULAR' | 'CLOSED';
+  preMarketPrice?: number;
+  preMarketChange?: number;
+  preMarketChangePercent?: number;
+  preMarketHigh?: number;
+  preMarketLow?: number;
+  postMarketPrice?: number;
+  postMarketChange?: number;
+  postMarketChangePercent?: number;
+  postMarketHigh?: number;
+  postMarketLow?: number;
+  extendedHoursVolume?: number;
+  extendedHoursVolumeFormatted?: string;
+  bid?: number;
+  ask?: number;
+  spread?: number;
+  spreadPercent?: number;
+  previousClose: number;
+  predictedOpenPrice?: number;
+  predictedOpenChangePercent?: number;
+  predictionConfidence?: number; // 0-100%
+  predictionCautionNote?: string;
+  afterHoursMovePercent?: number;
+  earningsReleaseTime?: string; // e.g. "4:05 PM"
+  marketReactionInterpretation?: string; // e.g. "Strong immediate reaction"
+  afterHoursSentiment: 'bullish' | 'neutral' | 'bearish';
+  afterHoursConfidenceScore: number; // e.g. 82%
+  signalStrength: number; // e.g. 60
+  signalStrengthBars: string; // e.g. "██████░░░░ 60%"
+  signalStrengthLabel: string;
+  contextInsight: string;
+}
+
+export type RecommendationAction = 'BUY' | 'HOLD' | 'SELL_PARTIAL' | 'SELL_ALL' | 'AVOID' | 'Buy More' | 'Hold' | 'Sell';
+
 export interface StockData {
   ticker: string;
   name?: string;
@@ -20,11 +75,29 @@ export interface StockData {
   exchangeTimezone?: string;
   marketTimestamp?: string;
   canonicalTimestamp?: string;
-  dailyHistory: { date: string; price: number; volume: number; avwapAth?: number | null }[];
+  extendedHours?: ExtendedHoursData;
+  dailyHistory: { 
+    date: string; 
+    price: number; 
+    volume: number; 
+    avwapAth?: number | null;
+    ma5?: number | null;
+    ma20?: number | null;
+    ma50?: number | null;
+  }[];
   ma5: number;
+  ma20?: number;
+  ma50?: number;
+  ma200?: number;
+  avgVolume20d?: number;
+  relativeVolume?: number;
   avwapAth?: AvwapAthData;
   marketCap?: string;
+  isETF?: boolean;
   peRatio?: number;
+  eps?: number;
+  epsFormatted?: string;
+  earnings?: EarningsEstimatesData;
   dividendYield?: number;
   dividendRate?: number;
   dividendAmount?: number;
@@ -54,17 +127,55 @@ export interface StockData {
     trendExplanation: string;
     support: number;
     resistance: number;
+    supportZone?: { low: number; high: number };
+    resistanceZone?: { low: number; high: number };
+    majorSupport?: number;
+    supportMethodology?: string;
+    resistanceMethodology?: string;
     volumeInsight: string;
+    avgVolume30d?: number;
+    avgVolume20d?: number;
+    relativeVolume?: number;
     momentumStrength: number | string;
+    rsi14?: number;
+    momentumScore?: number;
+    momentumLabel?: "Strong" | "Moderate" | "Weak";
+    momentumMethodology?: string;
+    volatility?: string;
   };
   recommendation: {
-    action: "Buy More" | "Hold" | "Sell";
+    action: RecommendationAction;
+    actionHeadline?: string;
+    sellPercentage?: number;
+    confidence?: number;
+    signalAgreement?: {
+      score: number;
+      alignedCount: number;
+      totalCount: number;
+      headline: string;
+      summary: string;
+      description: string;
+    };
+    decisionStatement?: string;
+    valuationAssessment?: string;
     idealEntryPrice: number;
+    addZone?: { 
+      low: number; 
+      high: number; 
+      technicalCorridorHigh?: number;
+      explanation?: string;
+    };
+    confirmationBreakout?: number;
+    positionAllocation?: string;
+    timeHorizon?: string;
     stopLoss: number;
     profitTarget: number;
     riskRewardRatio: number;
     positionSizing: string;
     entryExplanation: string;
+    targetMethodology?: string;
+    stopLossMethodology?: string;
+    entryMethodology?: string;
     reasons: string[];
   };
   lastUpdated?: string;
@@ -86,35 +197,108 @@ export interface LatestPriceResult {
 }
 
 async function safeJsonFetch<T>(res: Response, fallbackError: string): Promise<T> {
-  const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
 
-  if (!contentType.includes('application/json')) {
-    if (!res.ok) {
-      throw new Error(`Server returned error (${res.status}): ${fallbackError}`);
-    }
-    throw new Error('Unexpected non-JSON response from server. Please try refreshing or checking the ticker symbol.');
-  }
-
+  // Try parsing JSON first, regardless of content-type header quirks
   let json: any;
+  let isJson = false;
   try {
     json = JSON.parse(text);
+    isJson = true;
   } catch {
-    throw new Error(`Invalid JSON received from server. ${fallbackError}`);
+    isJson = false;
   }
 
+  if (isJson) {
+    if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error('401 Authentication Required: Access session expired or unauthorized. Please re-open the app via Google AI Studio or check project access.');
+      }
+      throw new Error(json?.error || fallbackError);
+    }
+    return json as T;
+  }
+
+  // If response is not JSON, check status code
   if (!res.ok) {
-    throw new Error(json?.error || fallbackError);
+    if (res.status === 401) {
+      throw new Error('401 Authentication Required: Access session expired or unauthorized. Please re-open the app via Google AI Studio or check project access.');
+    }
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new Error(`Server temporarily unavailable (${res.status}). Server process may be warming up or restarting.`);
+    }
+    // Clean up raw HTML if proxy returned an HTML error page (e.g., Google Front End error)
+    const cleanMsg = text.length > 0 && text.length < 300 && !text.includes('<!DOCTYPE') && !text.includes('<html') 
+      ? text.trim() 
+      : fallbackError;
+    throw new Error(`Server returned error (${res.status}): ${cleanMsg}`);
   }
 
-  return json as T;
+  // If status is 200 but body was non-JSON (e.g., HTML from proxy/Vite during server reload/cold start)
+  const isHtml = text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<script');
+  if (isHtml) {
+    throw new Error('Server connection warming up (received HTML shell during initialization). Retrying connection...');
+  }
+
+  throw new Error('Unexpected non-JSON response from server. Please try refreshing or checking the ticker symbol.');
+}
+
+export async function fetchJsonWithRetry<T>(
+  url: string, 
+  options: RequestInit = {}, 
+  fallbackError: string,
+  retries: number = 3
+): Promise<T> {
+  const mergedOptions: RequestInit = {
+    ...options,
+    headers: {
+      'Accept': 'application/json',
+      ...(options.headers || {})
+    }
+  };
+
+  let lastError: any = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, mergedOptions);
+      return await safeJsonFetch<T>(res, fallbackError);
+    } catch (err: any) {
+      lastError = err;
+      const msg = err?.message || '';
+      const isTransient = 
+        msg.includes('warming up') ||
+        msg.includes('non-JSON') || 
+        msg.includes('temporarily unavailable') ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('502') ||
+        msg.includes('503') ||
+        msg.includes('504');
+
+      if (attempt < retries && isTransient) {
+        // Exponential progressive backoff (e.g. 500ms, 1000ms, 1500ms, 2000ms)
+        const delay = Math.min(2500, 500 * (attempt + 1));
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      break;
+    }
+  }
+
+  // Provide user-friendly final error if still failing after retries
+  if (lastError?.message?.includes('warming up') || lastError?.message?.includes('non-JSON')) {
+    throw new Error('The live data server was temporarily reconnecting. Please click "Try Again" or refresh the page to load fresh market data.');
+  }
+
+  throw lastError || new Error(fallbackError);
 }
 
 export async function analyzeStock(
   ticker: string, 
   avgPrice: number, 
   currency: string = 'USD', 
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  riskMode: string = 'aggressive'
 ): Promise<StockData> {
   const cleanTicker = (ticker || '').trim();
   if (!cleanTicker) {
@@ -125,11 +309,12 @@ export async function analyzeStock(
     ticker: cleanTicker,
     avgPrice: avgPrice.toString(),
     currency,
-    forceRefresh: forceRefresh ? 'true' : 'false'
+    forceRefresh: forceRefresh ? 'true' : 'false',
+    riskMode
   });
 
-  const res = await fetch(`/api/stock/${encodeURIComponent(cleanTicker.toUpperCase())}?${params.toString()}`);
-  return await safeJsonFetch<StockData>(res, `Failed to fetch live stock data for ${cleanTicker}`);
+  const url = `/api/stock/${encodeURIComponent(cleanTicker.toUpperCase())}?${params.toString()}`;
+  return await fetchJsonWithRetry<StockData>(url, {}, `Failed to fetch live stock data for ${cleanTicker}`);
 }
 
 export async function getLatestPrice(
@@ -148,8 +333,8 @@ export async function getLatestPrice(
     forceRefresh: forceRefresh ? 'true' : 'false'
   });
 
-  const res = await fetch(`/api/price/${encodeURIComponent(cleanTicker.toUpperCase())}?${params.toString()}`);
-  return await safeJsonFetch<LatestPriceResult>(res, `Failed to fetch price for ${cleanTicker}`);
+  const url = `/api/price?${params.toString()}`;
+  return await fetchJsonWithRetry<LatestPriceResult>(url, {}, `Failed to fetch price for ${cleanTicker}`);
 }
 
 export async function getBatchPrices(

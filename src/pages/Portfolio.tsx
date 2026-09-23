@@ -31,12 +31,54 @@ import {
   savePortfolioPosition, 
   deletePortfolioPosition, 
   resetToDefaultPortfolio,
+  clearAllPortfolioPositions,
+  setLocalPortfolio,
   type PortfolioPosition 
 } from '../services/portfolioService';
 import { getBatchPrices } from '../services/geminiService';
 import TickerLogo from '../components/TickerLogo';
 import { resolveTickerLogoUrl, getAuthoritativeCompanyName } from '../utils/tickerLogos';
 import { cn, formatCurrency } from '../utils';
+
+function getRecommendationBadgeInfo(action?: string, sellPercentage?: number) {
+  if (!action) return null;
+  const act = action.toUpperCase().trim();
+  if (act === 'SELL_ALL') {
+    return {
+      label: 'AI: Sell All (100%)',
+      className: 'bg-rose-600 text-white font-black shadow-xs'
+    };
+  }
+  if (act === 'SELL_PARTIAL') {
+    const pct = sellPercentage && sellPercentage > 0 && sellPercentage < 100 ? sellPercentage : 50;
+    return {
+      label: `AI: Sell Partial (${pct}%)`,
+      className: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-black'
+    };
+  }
+  if (act === 'SELL') {
+    return {
+      label: 'AI: Sell',
+      className: 'bg-rose-600 text-white font-black'
+    };
+  }
+  if (act === 'BUY' || act === 'BUY MORE') {
+    return {
+      label: 'AI: Buy',
+      className: 'bg-emerald-600 text-white font-black'
+    };
+  }
+  if (act === 'AVOID') {
+    return {
+      label: 'AI: Avoid',
+      className: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/25 font-bold'
+    };
+  }
+  return {
+    label: `AI: ${action}`,
+    className: 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold'
+  };
+}
 
 export default function Portfolio() {
   const navigate = useNavigate();
@@ -61,6 +103,8 @@ export default function Portfolio() {
 
   // Delete confirmation modal state
   const [deleteConfirmTicker, setDeleteConfirmTicker] = useState<string | null>(null);
+  const [clearAllConfirmOpen, setClearAllConfirmOpen] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
 
   // Load portfolio positions on mount
   const loadPortfolioData = async () => {
@@ -116,7 +160,7 @@ export default function Portfolio() {
         const pricesMap = json.prices || {};
 
         setPositions(prev => {
-          return prev.map(pos => {
+          const updated = prev.map(pos => {
             const item = pricesMap[pos.ticker.toUpperCase()];
             if (item && item.currentPrice !== undefined) {
               const freshPrice = item.currentPrice;
@@ -133,6 +177,8 @@ export default function Portfolio() {
             }
             return pos;
           });
+          setLocalPortfolio(updated);
+          return updated;
         });
       }
     } catch (e) {
@@ -258,6 +304,18 @@ export default function Portfolio() {
     setDeleteConfirmTicker(null);
   };
 
+  // Clear all positions
+  const handleClearAll = async () => {
+    setClearingAll(true);
+    try {
+      await clearAllPortfolioPositions();
+      setPositions([]);
+      setClearAllConfirmOpen(false);
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
   // Navigate to full analysis page with stored average price
   const handleAnalyzeStock = (pos: PortfolioPosition) => {
     const params = new URLSearchParams({
@@ -338,8 +396,14 @@ export default function Portfolio() {
 
       if (filterType === 'gainers') return gainPercent > 0;
       if (filterType === 'losers') return gainPercent < 0;
-      if (filterType === 'bullish') return pos.trend === 'Bullish' || pos.recommendationAction === 'Buy More';
-      if (filterType === 'bearish') return pos.trend === 'Bearish' || pos.recommendationAction === 'Sell';
+      if (filterType === 'bullish') {
+        const act = (pos.recommendationAction || '').toUpperCase();
+        return pos.trend === 'Bullish' || act === 'BUY' || act === 'BUY MORE';
+      }
+      if (filterType === 'bearish') {
+        const act = (pos.recommendationAction || '').toUpperCase();
+        return pos.trend === 'Bearish' || act === 'SELL' || act === 'SELL_ALL' || act === 'SELL_PARTIAL' || act === 'AVOID';
+      }
 
       return true;
     }).sort((a, b) => {
@@ -377,8 +441,19 @@ export default function Portfolio() {
           </div>
 
           <div className="flex items-center gap-2.5">
+            {positions.length > 0 && (
+              <button
+                onClick={() => setClearAllConfirmOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 text-xs font-black uppercase tracking-wider text-black/50 hover:text-red-600 dark:text-white/50 dark:hover:text-red-400 hover:border-red-500/30 transition-all shadow-xs cursor-pointer"
+                title="Clear all saved portfolio positions"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Clear All</span>
+              </button>
+            )}
+
             <button
-              onClick={handleRefreshAllPrices}
+              onClick={() => handleRefreshAllPrices()}
               disabled={refreshing || positions.length === 0}
               className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 text-xs font-black uppercase tracking-wider hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-all shadow-sm disabled:opacity-50 cursor-pointer"
               title="Refresh live prices for all positions"
@@ -419,12 +494,12 @@ export default function Portfolio() {
               Total Portfolio Value
             </span>
             <div className="text-xl md:text-2xl font-black tracking-tight text-black dark:text-white tabular-nums">
-              {portfolioSummary.totalMarketValue > 0 
+              {portfolioSummary.totalMarketValue && portfolioSummary.totalMarketValue > 0 
                 ? formatCurrency(portfolioSummary.totalMarketValue, 'USD')
-                : (positions.length > 0 ? `${positions.length} Monitored` : '$0.00')}
+                : (positions.length > 0 ? `${positions.length} Monitored` : '—')}
             </div>
             <p className="text-[10px] text-black/40 dark:text-white/40 font-medium">
-              Cost basis: {portfolioSummary.totalCostBasis > 0 ? formatCurrency(portfolioSummary.totalCostBasis, 'USD') : 'N/A'}
+              Cost basis: {portfolioSummary.totalCostBasis && portfolioSummary.totalCostBasis > 0 ? formatCurrency(portfolioSummary.totalCostBasis, 'USD') : '—'}
             </p>
           </div>
 
@@ -483,10 +558,10 @@ export default function Portfolio() {
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30" />
               <input 
                 type="text"
-                placeholder="Search by ticker, name or note..."
+                placeholder="Search by ticker (e.g. NVDA), name, or note..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl pl-9 pr-4 py-2 text-xs font-bold outline-none focus:border-emerald-500 transition-all uppercase"
+                className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl pl-9 pr-4 py-2 text-xs font-bold outline-none focus:border-emerald-500 transition-all placeholder:normal-case placeholder:font-normal placeholder:text-black/35 dark:placeholder:text-white/35"
               />
               {searchQuery && (
                 <button 
@@ -645,7 +720,7 @@ export default function Portfolio() {
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} size="md" />
+                        <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} companyName={pos.name} size="md" />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="font-black text-lg tracking-tight">{pos.ticker}</h3>
@@ -656,7 +731,7 @@ export default function Portfolio() {
                             )}
                           </div>
                           <p 
-                            className="text-xs font-semibold text-black/70 dark:text-white/70 truncate max-w-[160px] sm:max-w-[200px] leading-tight" 
+                            className="text-xs font-semibold text-black/70 dark:text-white/70 leading-tight" 
                             title={pos.name || getAuthoritativeCompanyName(pos.ticker)}
                           >
                             {pos.name || getAuthoritativeCompanyName(pos.ticker)}
@@ -695,7 +770,7 @@ export default function Portfolio() {
                         <div className="text-sm font-black font-mono text-black dark:text-white">
                           {formatCurrency(pos.avgPrice, pos.currency || 'USD')}
                         </div>
-                        {pos.shares && pos.shares > 0 && (
+                        {Boolean(pos.shares && pos.shares > 0) && (
                           <span className="text-[9px] font-bold text-black/40 dark:text-white/40">
                             {pos.shares} {pos.shares === 1 ? 'share' : 'shares'}
                           </span>
@@ -719,8 +794,8 @@ export default function Portfolio() {
                       </div>
                     </div>
 
-                    {/* Extended Position Value if shares specified */}
-                    {pos.shares && pos.shares > 0 && (
+                    {/* Extended Position Value if shares specified and holding value > 0 */}
+                    {Boolean(pos.shares && pos.shares > 0 && totalVal && totalVal > 0) && (
                       <div className="flex items-center justify-between text-xs px-1 py-0.5 mb-2 font-mono">
                         <span className="text-[9px] font-black uppercase text-black/40 dark:text-white/40">Holding Value:</span>
                         <div className="text-right">
@@ -728,7 +803,7 @@ export default function Portfolio() {
                             {formatCurrency(totalVal, pos.currency || 'USD')}
                           </span>
                           <span className={cn(
-                            "text-[9px] font-bold ml-1.5",
+                            "text-[9px] font-bold ml-1.5 whitespace-nowrap tabular-nums",
                             totalGainDollar >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
                           )}>
                             ({totalGainDollar >= 0 ? '+' : ''}{formatCurrency(totalGainDollar, pos.currency || 'USD')})
@@ -750,16 +825,18 @@ export default function Portfolio() {
                         </span>
                       )}
 
-                      {pos.recommendationAction && (
-                        <span className={cn(
-                          "text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md",
-                          pos.recommendationAction === 'Buy More' ? "bg-emerald-600 text-white font-black" :
-                          pos.recommendationAction === 'Sell' ? "bg-red-600 text-white font-black" :
-                          "bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300"
-                        )}>
-                          AI: {pos.recommendationAction}
-                        </span>
-                      )}
+                      {(() => {
+                        const badgeInfo = getRecommendationBadgeInfo(pos.recommendationAction, pos.sellPercentage);
+                        if (!badgeInfo) return null;
+                        return (
+                          <span className={cn(
+                            "text-[8px] uppercase tracking-wider px-2 py-0.5 rounded-md",
+                            badgeInfo.className
+                          )}>
+                            {badgeInfo.label}
+                          </span>
+                        );
+                      })()}
 
                       {pos.avwapAthPrice && (
                         <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-cyan-100 dark:bg-cyan-500/20 text-cyan-800 dark:text-cyan-300 flex items-center gap-1">
@@ -768,9 +845,11 @@ export default function Portfolio() {
                         </span>
                       )}
 
-                      {pos.dividendYield && pos.dividendYield > 0 && (
-                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
-                          {pos.dividendYield.toFixed(2)}% Div Yield
+                      {Boolean(pos.dividendYield && pos.dividendYield > 0) && (
+                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                          <span>{pos.dividendYield.toFixed(2)}% Div Yield</span>
+                          {pos.dividendRate ? <span>({formatCurrency(pos.dividendRate, pos.currency || 'USD')}/yr)</span> : null}
+                          {pos.exDividendDate ? <span>• Ex: {pos.exDividendDate}</span> : null}
                         </span>
                       )}
                     </div>
@@ -829,11 +908,11 @@ export default function Portfolio() {
                       <tr key={pos.ticker} className="hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors group">
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2.5">
-                            <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} size="sm" />
+                            <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} companyName={pos.name} size="sm" />
                             <div className="min-w-0">
                               <span className="font-black text-sm block leading-tight">{pos.ticker}</span>
                               <span 
-                                className="text-xs font-semibold text-black/70 dark:text-white/70 block truncate max-w-[180px] leading-tight" 
+                                className="text-xs font-semibold text-black/70 dark:text-white/70 block leading-tight" 
                                 title={pos.name || getAuthoritativeCompanyName(pos.ticker)}
                               >
                                 {pos.name || getAuthoritativeCompanyName(pos.ticker)}
@@ -845,8 +924,10 @@ export default function Portfolio() {
 
                         <td className="px-5 py-4 font-mono font-bold">
                           <div>{formatCurrency(pos.avgPrice, pos.currency || 'USD')}</div>
-                          {pos.shares && pos.shares > 0 && (
-                            <div className="text-[9px] text-black/40 dark:text-white/40 font-sans">{pos.shares} shares</div>
+                          {Boolean(pos.shares && pos.shares > 0) && (
+                            <div className="text-[9px] text-black/40 dark:text-white/40 font-sans">
+                              {pos.shares} {pos.shares === 1 ? 'share' : 'shares'}
+                            </div>
                           )}
                         </td>
 
@@ -862,7 +943,7 @@ export default function Portfolio() {
                             {isProfit ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
                             {isProfit ? '+' : ''}{gainPercent.toFixed(2)}%
                           </div>
-                          {pos.shares && pos.shares > 0 && (
+                          {Boolean(pos.shares && pos.shares > 0 && totalVal && totalVal > 0) && (
                             <div className={cn("text-[9px]", totalGainDollar >= 0 ? "text-emerald-600/70" : "text-red-500/70")}>
                               {totalGainDollar >= 0 ? '+' : ''}{formatCurrency(totalGainDollar, pos.currency || 'USD')}
                             </div>
@@ -870,7 +951,7 @@ export default function Portfolio() {
                         </td>
 
                         <td className="px-5 py-4 font-mono font-black">
-                          {pos.shares && pos.shares > 0 ? (
+                          {Boolean(pos.shares && pos.shares > 0 && totalVal && totalVal > 0) ? (
                             <div>
                               <span>{formatCurrency(totalVal, pos.currency || 'USD')}</span>
                               <span className="text-[9px] text-black/40 dark:text-white/40 block font-sans">
@@ -894,11 +975,18 @@ export default function Portfolio() {
                                 {pos.trend}
                               </span>
                             )}
-                            {pos.recommendationAction && (
-                              <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10">
-                                {pos.recommendationAction}
-                              </span>
-                            )}
+                            {(() => {
+                              const badgeInfo = getRecommendationBadgeInfo(pos.recommendationAction, pos.sellPercentage);
+                              if (!badgeInfo) return null;
+                              return (
+                                <span className={cn(
+                                  "text-[8px] uppercase px-1.5 py-0.5 rounded",
+                                  badgeInfo.className
+                                )}>
+                                  {badgeInfo.label}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
 
@@ -973,8 +1061,8 @@ export default function Portfolio() {
               )}
 
               <form onSubmit={handleSaveModal} className="space-y-3.5 text-xs">
-                <div className="grid grid-cols-2 gap-3 items-start">
-                  <div className="space-y-1 text-left">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <div className="space-y-1 text-left w-full">
                     <div className="flex items-center justify-between h-4">
                       <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
                         Stock Ticker
@@ -982,21 +1070,21 @@ export default function Portfolio() {
                     </div>
                     <input
                       type="text"
-                      placeholder="e.g. NVDA"
+                      placeholder="e.g. NVDA, AAPL, CSPX.L"
                       value={formTicker}
                       onChange={(e) => setFormTicker(e.target.value.toUpperCase())}
                       disabled={!!editingTicker}
                       required
-                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold uppercase outline-none focus:border-emerald-500 disabled:opacity-50 text-sm"
+                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold uppercase outline-none focus:border-emerald-500 disabled:opacity-50 text-sm placeholder:normal-case placeholder:font-normal placeholder:text-black/35 dark:placeholder:text-white/35"
                     />
                     {formTicker.trim() && getAuthoritativeCompanyName(formTicker.trim()) !== formTicker.trim().toUpperCase() && (
-                      <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 ml-1 truncate">
+                      <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 ml-1 leading-snug break-words">
                         {getAuthoritativeCompanyName(formTicker.trim())}
                       </div>
                     )}
                   </div>
 
-                  <div className="space-y-1 text-left">
+                  <div className="space-y-1 text-left w-full">
                     <div className="flex items-center justify-between h-4">
                       <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
                         Avg Purchase Price
@@ -1005,17 +1093,17 @@ export default function Portfolio() {
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="e.g. 124.50"
+                      placeholder="Cost basis (e.g. 124.50)"
                       value={formAvgPrice}
                       onChange={(e) => setFormAvgPrice(e.target.value)}
                       required
-                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold font-mono outline-none focus:border-emerald-500 text-sm"
+                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold font-mono outline-none focus:border-emerald-500 text-sm placeholder:font-sans placeholder:font-normal placeholder:text-xs placeholder:text-black/35 dark:placeholder:text-white/35"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 items-start">
-                  <div className="space-y-1 text-left">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <div className="space-y-1 text-left w-full">
                     <div className="flex items-center justify-between h-4">
                       <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
                         Shares (Optional)
@@ -1024,14 +1112,14 @@ export default function Portfolio() {
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="e.g. 25"
+                      placeholder="e.g. 25 shares"
                       value={formShares}
                       onChange={(e) => setFormShares(e.target.value)}
-                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold outline-none focus:border-emerald-500 text-sm"
+                      className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-bold outline-none focus:border-emerald-500 text-sm placeholder:font-normal placeholder:text-black/35 dark:placeholder:text-white/35"
                     />
                   </div>
 
-                  <div className="space-y-1 text-left">
+                  <div className="space-y-1 text-left w-full">
                     <div className="flex items-center justify-between h-4">
                       <label className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 ml-1">
                         Currency
@@ -1057,10 +1145,10 @@ export default function Portfolio() {
                   </div>
                   <input
                     type="text"
-                    placeholder="e.g. Core long-term AI hardware hold"
+                    placeholder="e.g. Long-term AI infrastructure hold, target exit at 180"
                     value={formNotes}
                     onChange={(e) => setFormNotes(e.target.value)}
-                    className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-medium outline-none focus:border-emerald-500 text-sm"
+                    className="w-full h-11 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-3.5 font-medium outline-none focus:border-emerald-500 text-sm placeholder:text-black/35 dark:placeholder:text-white/35"
                   />
                 </div>
 
@@ -1091,6 +1179,56 @@ export default function Portfolio() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ======================================================== */}
+      {/* CLEAR ALL PORTFOLIO CONFIRMATION DIALOG */}
+      {/* ======================================================== */}
+      <AnimatePresence>
+        {clearAllConfirmOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-[#141414] rounded-3xl border border-black/10 dark:border-white/10 shadow-2xl w-full max-w-sm p-6 space-y-4 text-center"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-lg">Clear Entire Portfolio?</h3>
+                <p className="text-xs text-black/50 dark:text-white/50 mt-1">
+                  This will remove all {positions.length} stocks from both your browser and disk storage, resetting your portfolio to a clean empty state.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 pt-2">
+                <button
+                  disabled={clearingAll}
+                  onClick={() => setClearAllConfirmOpen(false)}
+                  className="py-2.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 font-bold uppercase tracking-wider text-[10px] transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={clearingAll}
+                  onClick={handleClearAll}
+                  className="py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black uppercase tracking-wider text-[10px] transition-colors shadow-md shadow-red-600/20 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {clearingAll ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Clearing...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Clear</span>
+                  )}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

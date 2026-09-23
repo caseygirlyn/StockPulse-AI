@@ -1,4 +1,5 @@
 import { resolveTickerLogoUrl, getAuthoritativeCompanyName } from '../utils/tickerLogos';
+import type { RecommendationAction } from './serverStock';
 
 export interface PortfolioPosition {
   ticker: string;
@@ -13,7 +14,8 @@ export interface PortfolioPosition {
   priceChange?: number;
   priceChangePercent?: number;
   trend?: 'Bullish' | 'Bearish' | 'Neutral';
-  recommendationAction?: 'Buy More' | 'Hold' | 'Sell';
+  recommendationAction?: RecommendationAction | string;
+  sellPercentage?: number;
   ma5?: number;
   avwapAthPrice?: number;
   dividendYield?: number;
@@ -29,7 +31,7 @@ export interface PortfolioPosition {
   date: string;
 }
 
-export const DEFAULT_PORTFOLIO_STARTERS: PortfolioPosition[] = [
+export const SAMPLE_PORTFOLIO_STARTERS: PortfolioPosition[] = [
   {
     ticker: 'RR.L',
     name: 'Rolls-Royce Holdings plc',
@@ -43,8 +45,13 @@ export const DEFAULT_PORTFOLIO_STARTERS: PortfolioPosition[] = [
     priceChangePercent: -2.03,
     trend: 'Bullish',
     recommendationAction: 'Buy More',
+    dividendYield: 0.76,
+    dividendRate: 0.11,
+    dividendAmount: 0.06,
+    exDividendDate: '2026-08-06',
+    paymentDate: '2026-09-18',
     logoUrl: 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://rolls-royce.com&size=128',
-    notes: 'Core UK aerospace & defense turnaround play.',
+    notes: 'Core UK aerospace & defense champion. H1 2026 operating profit £2.53B, FCF £1.96B, net cash £2.14B. Statutory EPS 69.41p, interim div 6p payable 18 Sep 2026.',
     date: '2026-09-09T00:00:00.000Z'
   },
   {
@@ -100,7 +107,46 @@ export const DEFAULT_PORTFOLIO_STARTERS: PortfolioPosition[] = [
   }
 ];
 
+// Clean empty slate on first load
+export const DEFAULT_PORTFOLIO_STARTERS: PortfolioPosition[] = [];
+
 const LOCAL_STORAGE_KEY = 'stockpulse_portfolio_positions';
+const LOCAL_STORAGE_DELETED_KEY = 'stockpulse_portfolio_deleted_tickers';
+
+export function getDeletedTickers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_DELETED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr.map((t: string) => t.toUpperCase()) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markTickerDeleted(ticker: string): void {
+  try {
+    const clean = ticker.trim().toUpperCase();
+    const set = getDeletedTickers();
+    set.add(clean);
+    localStorage.setItem(LOCAL_STORAGE_DELETED_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+export function clearDeletedTicker(ticker: string): void {
+  try {
+    const clean = ticker.trim().toUpperCase();
+    const set = getDeletedTickers();
+    set.delete(clean);
+    localStorage.setItem(LOCAL_STORAGE_DELETED_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+export function clearAllDeletedTickers(): void {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_DELETED_KEY);
+  } catch {}
+}
 
 // Helper to get cached positions from localStorage
 export function getLocalPortfolio(): PortfolioPosition[] {
@@ -128,8 +174,17 @@ export function setLocalPortfolio(positions: PortfolioPosition[]): void {
   }
 }
 
+/**
+ * Bi-directional self-healing fetch and reconciliation:
+ * 1. Reads local browser cache immediately.
+ * 2. Fetches server data.json.
+ * 3. Reconciles both: preserves local positions missing from server (and heals server via batch),
+ *    and incorporates server positions missing locally (unless explicitly deleted by the user).
+ * 4. Merges user fields so notes, custom cost-basis, and share quantities are never lost.
+ */
 export async function fetchPortfolio(): Promise<PortfolioPosition[]> {
-  const localPositions = getLocalPortfolio();
+  const local = getLocalPortfolio();
+  const deletedSet = getDeletedTickers();
 
   try {
     const res = await fetch('/api/portfolio');
@@ -137,111 +192,141 @@ export async function fetchPortfolio(): Promise<PortfolioPosition[]> {
       throw new Error(`Server returned ${res.status}`);
     }
     const data = await res.json();
-    const serverPositions: PortfolioPosition[] = Array.isArray(data.positions) ? data.positions : [];
-    
-    // If server has positions, merge them with local storage
-    if (serverPositions.length > 0) {
-      const mergedMap = new Map<string, PortfolioPosition>();
-
-      // Populate local first
-      localPositions.forEach(p => {
-        if (p.ticker) mergedMap.set(p.ticker.toUpperCase(), p);
-      });
-
-      // Merge server positions
-      serverPositions.forEach(p => {
-        if (!p.ticker) return;
-        const key = p.ticker.toUpperCase();
-        const existing = mergedMap.get(key);
-        if (existing) {
-          mergedMap.set(key, {
-            ...existing,
-            ...p,
-            shares: p.shares !== undefined ? p.shares : existing.shares,
-            notes: p.notes || existing.notes
-          });
-        } else {
-          mergedMap.set(key, p);
-        }
-      });
-
-      const finalPositions = Array.from(mergedMap.values()).map(p => ({
+    if (data && Array.isArray(data.positions)) {
+      const serverPositions: PortfolioPosition[] = data.positions.map((p: any) => ({
         ...p,
         name: getAuthoritativeCompanyName(p.ticker, p.name),
         logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
       }));
-      setLocalPortfolio(finalPositions);
 
-      // Sync any local-only positions to the server in background
-      localPositions.forEach(localPos => {
-        if (!serverPositions.some(sp => sp.ticker.toUpperCase() === localPos.ticker.toUpperCase())) {
-          fetch('/api/portfolio', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(localPos)
-          }).catch(() => {});
+      // Reconcile between server and local
+      const positionsMap = new Map<string, PortfolioPosition>();
+
+      // 1. Add server positions (omitting any tombstoned/deleted items)
+      for (const pos of serverPositions) {
+        const t = (pos.ticker || '').trim().toUpperCase();
+        if (!t) continue;
+        if (deletedSet.has(t)) {
+          // Tell server in background to ensure deletion on disk
+          fetch(`/api/portfolio/${encodeURIComponent(t)}`, { method: 'DELETE' }).catch(() => {});
+          continue;
         }
-      });
+        positionsMap.set(t, pos);
+      }
 
-      return finalPositions;
-    }
+      // If server explicitly initialized and is empty (e.g. data.json has positions: []),
+      // check if local only contains the legacy sample starter positions. If so, clean them out!
+      const sampleTickers = new Set(['RR.L', 'NVDA', 'AAPL', 'MSFT']);
+      const isOnlySampleStarters = local.length > 0 && local.every(p => sampleTickers.has(p.ticker.toUpperCase()));
+      if (serverPositions.length === 0 && isOnlySampleStarters) {
+        setLocalPortfolio([]);
+        return [];
+      }
 
-    // If server returned empty, but local has positions, preserve local and sync to server!
-    if (localPositions.length > 0) {
-      localPositions.forEach(pos => {
-        fetch('/api/portfolio', {
+      // 2. Add or merge local positions
+      const missingOnServer: PortfolioPosition[] = [];
+      for (const pos of local) {
+        const t = (pos.ticker || '').trim().toUpperCase();
+        if (!t || deletedSet.has(t)) continue;
+
+        const serverMatch = positionsMap.get(t);
+        if (!serverMatch) {
+          // Local has a custom position the server lacked (e.g., container reboot)
+          positionsMap.set(t, pos);
+          missingOnServer.push(pos);
+        } else {
+          // Both have it: preserve user custom fields (shares, avgPrice, notes)
+          positionsMap.set(t, {
+            ...serverMatch,
+            ...pos,
+            // Keep fresh live price/metrics from server if present
+            currentPrice: serverMatch.currentPrice || pos.currentPrice,
+            priceChange: serverMatch.priceChange ?? pos.priceChange,
+            priceChangePercent: serverMatch.priceChangePercent ?? pos.priceChangePercent,
+            previousClose: serverMatch.previousClose ?? pos.previousClose,
+            exchange: serverMatch.exchange || pos.exchange,
+            // Retain user custom holdings details
+            avgPrice: pos.avgPrice > 0 ? pos.avgPrice : serverMatch.avgPrice,
+            shares: pos.shares !== undefined ? pos.shares : serverMatch.shares,
+            notes: pos.notes || serverMatch.notes
+          });
+        }
+      }
+
+      const reconciled = Array.from(positionsMap.values());
+
+      // If server was missing any positions stored locally, auto-heal backend in background
+      if (missingOnServer.length > 0) {
+        fetch('/api/portfolio/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pos)
-        }).catch(() => {});
-      });
-      return localPositions;
+          body: JSON.stringify({ positions: missingOnServer })
+        }).catch(err => console.warn('Auto-healing server portfolio batch failed:', err));
+      }
+
+      // Save reconciled list to localStorage
+      setLocalPortfolio(reconciled);
+      return reconciled;
     }
-
-    // If both server and local are empty, initialize with default starters
-    setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
-    DEFAULT_PORTFOLIO_STARTERS.forEach(pos => {
-      fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pos)
-      }).catch(() => {});
-    });
-
-    return DEFAULT_PORTFOLIO_STARTERS;
   } catch (error) {
     console.warn('Falling back to local storage for portfolio:', error);
-    const local = getLocalPortfolio();
-    if (local.length > 0) return local;
-    setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
-    return DEFAULT_PORTFOLIO_STARTERS;
+  }
+
+  // Fallback to local storage filtered by deletions
+  const filteredLocal = local.filter(p => !deletedSet.has((p.ticker || '').toUpperCase()));
+  if (filteredLocal.length > 0) return filteredLocal;
+  return [];
+}
+
+export async function clearAllPortfolioPositions(): Promise<void> {
+  setLocalPortfolio([]);
+  clearAllDeletedTickers();
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    window.localStorage.removeItem(LOCAL_STORAGE_DELETED_KEY);
+    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { action: 'clear' } }));
+  }
+  try {
+    await fetch('/api/portfolio/clear', { method: 'POST' });
+  } catch (err) {
+    console.warn('Failed to clear server portfolio:', err);
   }
 }
 
 export async function resetToDefaultPortfolio(): Promise<PortfolioPosition[]> {
-  setLocalPortfolio(DEFAULT_PORTFOLIO_STARTERS);
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { action: 'reset' } }));
-  }
-
+  clearAllDeletedTickers();
   try {
     const res = await fetch('/api/portfolio/reset', { method: 'POST' });
     if (res.ok) {
       const data = await res.json();
       if (data.positions && Array.isArray(data.positions)) {
-        setLocalPortfolio(data.positions);
-        return data.positions;
+        const positions: PortfolioPosition[] = data.positions.map((p: any) => ({
+          ...p,
+          name: getAuthoritativeCompanyName(p.ticker, p.name),
+          logoUrl: resolveTickerLogoUrl(p.ticker, p.logoUrl, p.name)
+        }));
+        setLocalPortfolio(positions);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { action: 'reset' } }));
+        }
+        return positions;
       }
     }
   } catch (err) {
     console.warn('Failed to call reset API:', err);
   }
 
-  return DEFAULT_PORTFOLIO_STARTERS;
+  setLocalPortfolio(SAMPLE_PORTFOLIO_STARTERS);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { action: 'reset' } }));
+  }
+  return SAMPLE_PORTFOLIO_STARTERS;
 }
 
 export async function savePortfolioPosition(position: Partial<PortfolioPosition> & { ticker: string; avgPrice: number }): Promise<PortfolioPosition> {
   const cleanTicker = position.ticker.trim().toUpperCase();
+  clearDeletedTicker(cleanTicker);
+
   const fullPosition: PortfolioPosition = {
     ticker: cleanTicker,
     avgPrice: position.avgPrice,
@@ -256,6 +341,7 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
     priceChangePercent: position.priceChangePercent,
     trend: position.trend,
     recommendationAction: position.recommendationAction,
+    sellPercentage: position.sellPercentage,
     ma5: position.ma5,
     avwapAthPrice: position.avwapAthPrice,
     dividendYield: position.dividendYield,
@@ -271,7 +357,8 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
     date: position.date || new Date().toISOString()
   };
 
-  // Optimistically update local cache
+  // 1. Immediately clear any tombstone and cache in local storage so browser never loses it
+  clearDeletedTicker(cleanTicker);
   const currentLocal = getLocalPortfolio();
   const existingIndex = currentLocal.findIndex(p => p.ticker.toUpperCase() === cleanTicker);
   let updatedLocal: PortfolioPosition[];
@@ -283,12 +370,9 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
   }
   setLocalPortfolio(updatedLocal);
 
-  // Dispatch custom event for reactive UI updates across components
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { ticker: cleanTicker } }));
-  }
+  let savedResult: PortfolioPosition = fullPosition;
 
-  // Persist to server
+  // 2. Persist to server data.json
   try {
     const res = await fetch('/api/portfolio', {
       method: 'POST',
@@ -297,37 +381,56 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
     });
     if (res.ok) {
       const saved = await res.json();
-      return saved;
+      if (saved && saved.ticker) {
+        savedResult = saved;
+        // Re-cache with any server-populated live price/exchange data
+        const idx = updatedLocal.findIndex(p => p.ticker.toUpperCase() === cleanTicker);
+        if (idx > -1) {
+          updatedLocal[idx] = { ...updatedLocal[idx], ...savedResult };
+          setLocalPortfolio(updatedLocal);
+        }
+      }
     }
   } catch (error) {
     console.warn('Failed to sync saved position to backend API:', error);
   }
 
-  return fullPosition;
+  // 3. Dispatch event across app
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { ticker: cleanTicker } }));
+  }
+
+  return savedResult;
 }
 
 export async function deletePortfolioPosition(ticker: string): Promise<boolean> {
   const cleanTicker = ticker.trim().toUpperCase();
 
-  // Optimistically update local storage
+  // 1. Tombstone in local deleted set so server sync never resurrects it
+  markTickerDeleted(cleanTicker);
+
+  // 2. Remove from local storage immediately
   const currentLocal = getLocalPortfolio();
   const updatedLocal = currentLocal.filter(p => p.ticker.toUpperCase() !== cleanTicker);
   setLocalPortfolio(updatedLocal);
 
-  // Dispatch custom event
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { ticker: cleanTicker } }));
-  }
-
+  // 3. Delete from server data.json
+  let serverOk = false;
   try {
     const res = await fetch(`/api/portfolio/${encodeURIComponent(cleanTicker)}`, {
       method: 'DELETE'
     });
-    return res.ok;
+    serverOk = res.ok;
   } catch (error) {
     console.warn('Failed to delete position on backend API:', error);
-    return true;
   }
+
+  // 4. Dispatch event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('portfolio_updated', { detail: { ticker: cleanTicker } }));
+  }
+
+  return serverOk;
 }
 
 export function getSavedPosition(ticker: string): PortfolioPosition | undefined {

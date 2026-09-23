@@ -175,7 +175,34 @@ export const KNOWN_TICKER_DOMAINS: Record<string, string> = {
   'EXPN': 'experian.com',
   'EXPN.L': 'experian.com',
 
-  // Tech, AI & Blue Chips
+  'BA': 'boeing.com',
+  'BAESY': 'baesystems.com',
+  'LMT': 'lockheedmartin.com',
+  'RTX': 'rtx.com',
+  'NOC': 'northropgrumman.com',
+  'GD': 'gd.com',
+  'CAT': 'caterpillar.com',
+  'DE': 'deere.com',
+  'GE': 'geaerospace.com',
+  'GEV': 'gevernova.com',
+  'HON': 'honeywell.com',
+  'MMM': '3m.com',
+  'ETN': 'eaton.com',
+  'PH': 'ph.com',
+  'EMR': 'emerson.com',
+  'ROK': 'rockwellautomation.com',
+  'PCAR': 'paccar.com',
+  'TDG': 'transdigm.com',
+  'CSX': 'csx.com',
+  'UNP': 'up.com',
+  'NSC': 'nscorp.com',
+  'FDX': 'fedex.com',
+  'UPS': 'ups.com',
+  'DAL': 'delta.com',
+  'UAL': 'united.com',
+  'LUV': 'southwest.com',
+
+  // Tech, AI & Cloud Leaders
   'NVDA': 'nvidia.com',
   'AAPL': 'apple.com',
   'MSFT': 'microsoft.com',
@@ -188,78 +215,227 @@ export const KNOWN_TICKER_DOMAINS: Record<string, string> = {
   'INTC': 'intel.com',
   'MU': 'micron.com',
   'NFLX': 'netflix.com',
-  'DIS': 'thewaltdisneycompany.com',
+  'DIS': 'disney.com',
   'BABA': 'alibaba.com',
   'PLTR': 'palantir.com',
   'ARM': 'arm.com',
   'ASML': 'asml.com',
-  'JPM': 'jpmorganchase.com',
-  'V': 'visa.com',
-  'MA': 'mastercard.com',
-  'WMT': 'walmart.com',
-  'LLY': 'lilly.com',
-  'AVGO': 'broadcom.com',
+  'SAP': 'sap.com',
+  'SAP.DE': 'sap.com',
+  'SMCI': 'supermicro.com',
+  'MSTR': 'microstrategy.com',
+  'DELL': 'dell.com',
   'ORCL': 'oracle.com',
-  'CSCO': 'cisco.com',
-  'ADBE': 'adobe.com',
-  'UBER': 'uber.com',
-  'SPOT': 'spotify.com',
-  'COIN': 'coinbase.com',
-  'PYPL': 'paypal.com',
-  'BA': 'boeing.com',
-  'CAT': 'caterpillar.com',
-  'GS': 'goldmansachs.com',
-  'MS': 'morganstanley.com',
-  'NKE': 'nike.com',
-  'SBUX': 'starbucks.com',
-  'PEP': 'pepsico.com',
-  'COST': 'costco.com',
-  'QCOM': 'qualcomm.com',
-  'TXN': 'ti.com',
-  'SONY': 'sony.com',
-  'TSM': 'tsmc.com',
   'CRM': 'salesforce.com',
+  'ADBE': 'adobe.com',
   'SNOW': 'snowflake.com',
   'NOW': 'servicenow.com',
   'PANW': 'paloaltonetworks.com',
   'CRWD': 'crowdstrike.com',
+  'NET': 'cloudflare.com',
+  'DDOG': 'datadoghq.com',
+  'MDB': 'mongodb.com',
+  'ZS': 'zscaler.com',
+  'FTNT': 'fortinet.com',
+  'OKTA': 'okta.com',
+  'ESTC': 'elastic.co',
+  'DOCU': 'docusign.com',
+  'HUBS': 'hubspot.com',
+  'TWLO': 'twilio.com',
+  'TEAM': 'atlassian.com',
+  'WDAY': 'workday.com',
+  'ZM': 'zoom.us',
+  'CSCO': 'cisco.com',
+  'AVGO': 'broadcom.com',
+  'QCOM': 'qualcomm.com',
+  'TXN': 'ti.com',
+  'SONY': 'sony.com',
+  'TSM': 'tsmc.com',
+  'UBER': 'uber.com',
+  'LYFT': 'lyft.com',
+  'DASH': 'doordash.com',
+  'SPOT': 'spotify.com',
   'SHOP': 'shopify.com',
-  'SQ': 'block.xyz',
   'ABNB': 'airbnb.com',
-  'PFE': 'pfizer.com',
-  'MRK': 'merck.com',
-  'ABBV': 'abbvie.com',
-  'JNJ': 'jnj.com',
-  'C': 'citigroup.com',
+  'RDDT': 'reddit.com',
+  'APP': 'applovin.com',
+  'RKLB': 'rocketlabusa.com',
+  'ASTS': 'ast-science.com',
+  'HIMS': 'hims.com',
+  'DKNG': 'draftkings.com',
+  'PINS': 'pinterest.com',
+  'SNAP': 'snap.com',
+  'ROKU': 'roku.com',
+  'TTD': 'thetradedesk.com',
+  'SE': 'sea.com',
+  'GRAB': 'grab.com',
+  'MELI': 'mercadolibre.com',
+  'NU': 'nubank.com.br',
+  'PDD': 'pddholdings.com',
+  'BIDU': 'baidu.com',
+  'NTES': 'netease.com',
+  'TCEHY': 'tencent.com',
+
+  // Financials & Wealth
+  'JPM': 'jpmorganchase.com',
+  'BAC': 'bankofamerica.com',
   'WFC': 'wellsfargo.com',
-  'AXP': 'americanexpress.com',
+  'C': 'citigroup.com',
+  'GS': 'goldmansachs.com',
+  'MS': 'morganstanley.com',
   'BLK': 'blackrock.com',
   'SCHW': 'schwab.com',
+  'IBKR': 'interactivebrokers.com',
+  'AXP': 'americanexpress.com',
+  'V': 'visa.com',
+  'MA': 'mastercard.com',
+  'PYPL': 'paypal.com',
+  'SQ': 'block.xyz',
+  'COIN': 'coinbase.com',
+  'HOOD': 'robinhood.com',
+  'SOFI': 'sofi.com',
+  'BRK.A': 'berkshirehathaway.com',
+  'BRK.B': 'berkshirehathaway.com',
+  'BRK-A': 'berkshirehathaway.com',
+  'BRK-B': 'berkshirehathaway.com',
+  'BRK': 'berkshirehathaway.com',
+
+  // Consumer & Retail
+  'WMT': 'walmart.com',
+  'COST': 'costco.com',
+  'TGT': 'target.com',
+  'HD': 'homedepot.com',
+  'LOW': 'lowes.com',
+  'PG': 'pg.com',
+  'PEP': 'pepsico.com',
+  'MCD': 'mcdonalds.com',
+  'SBUX': 'starbucks.com',
+  'NKE': 'nike.com',
+  'LULU': 'lululemon.com',
+  'CMG': 'chipotle.com',
+  'TJX': 'tjx.com',
+  'ROST': 'rossstores.com',
+  'YUM': 'yum.com',
+  'DPZ': 'dominos.com',
+  'MNST': 'monsterenergy.com',
+  'KDP': 'keurigdrpepper.com',
+  'CL': 'colgatepalmolive.com',
+  'EL': 'elcompanies.com',
+
+  // Healthcare & Life Sciences
+  'LLY': 'lilly.com',
+  'NVO': 'novonordisk.com',
+  'JNJ': 'jnj.com',
+  'UNH': 'unitedhealthgroup.com',
+  'ABBV': 'abbvie.com',
+  'MRK': 'merck.com',
+  'PFE': 'pfizer.com',
+  'TMO': 'thermofisher.com',
+  'ABT': 'abbott.com',
+  'DHR': 'danaher.com',
+  'BMY': 'bms.com',
+  'GILD': 'gilead.com',
+  'VRTX': 'vrtx.com',
+  'REGN': 'regeneron.com',
+  'ISRG': 'intuitive.com',
+  'MDT': 'medtronic.com',
+  'SYK': 'stryker.com',
+  'BSX': 'bostonscientific.com',
+  'CVS': 'cvs.com',
+  'CI': 'thecignagroup.com',
+  'ELV': 'elevancehealth.com',
+
+  // Energy & Utilities
   'XOM': 'exxonmobil.com',
   'CVX': 'chevron.com',
+  'TTE': 'totalenergies.com',
+  'OXY': 'oxy.com',
+  'COP': 'conocophillips.com',
+  'SLB': 'slb.com',
+  'EOG': 'eogresources.com',
+  'NEE': 'nexteraenergy.com',
+  'SO': 'southerncompany.com',
+  'DUK': 'duke-energy.com',
   'T': 'att.com',
   'VZ': 'verizon.com',
   'F': 'ford.com',
   'GM': 'gm.com',
   'RIVN': 'rivian.com',
   'LCID': 'lucidmotors.com',
-  'DE': 'deere.com',
-  'MMM': '3m.com',
-  'HON': 'honeywell.com',
-  'GE': 'geaerospace.com'
+
+  // Major Index / ETFs
+  'DIA': 'ssga.com',
+  'IBIT': 'ishares.com',
+  'FBTC': 'fidelity.com',
+  'BITO': 'proshares.com',
+  'ETHA': 'ishares.com',
+  'SMH': 'vaneck.com',
+  'SOXX': 'ishares.com',
+  'ARKK': 'ark-funds.com',
+  'JEPI': 'jpmorgan.com',
+  'JEPQ': 'jpmorgan.com',
+  'SCHD': 'schwab.com',
+
+  // International & London Stock Exchange Leaders
+  'EZJ': 'easyjet.com',
+  'EZJ.L': 'easyjet.com',
+  'IAG': 'iairgroup.com',
+  'IAG.L': 'iairgroup.com',
+  'WISE': 'wise.com',
+  'WISE.L': 'wise.com',
+  'AUTO': 'autotrader.co.uk',
+  'AUTO.L': 'autotrader.co.uk',
+  'RMV': 'rightmove.co.uk',
+  'RMV.L': 'rightmove.co.uk',
+  'SBRY': 'sainsburys.co.uk',
+  'SBRY.L': 'sainsburys.co.uk',
+  'OCDO': 'ocadogroup.com',
+  'OCDO.L': 'ocadogroup.com',
+  'ABF': 'abf.co.uk',
+  'ABF.L': 'abf.co.uk',
+  'ENT': 'entaingroup.com',
+  'ENT.L': 'entaingroup.com',
+  'FLTR': 'flutter.com',
+  'FLTR.L': 'flutter.com',
+  'CPG': 'compass-group.com',
+  'CPG.L': 'compass-group.com',
+  'INF': 'informa.com',
+  'INF.L': 'informa.com',
+  'SMT': 'bailliegifford.com',
+  'SMT.L': 'bailliegifford.com',
+  'FCIT': 'fandc.com',
+  'FCIT.L': 'fandc.com',
+  'JAM': 'jpmorgan.com',
+  'JAM.L': 'jpmorgan.com'
 };
 
 // Known erroneous/broken domains that should always be corrected
 const BAD_DOMAINS_MAP: Record<string, string> = {
   'barc.com': 'barclays.co.uk',
+  'bac.com': 'bankofamerica.com',
+  'hood.com': 'robinhood.com',
   'vuag.com': 'vanguard.com',
   'vusa.com': 'vanguard.com',
   'vwrp.com': 'vanguard.com',
   'vwrl.com': 'vanguard.com',
   'coca-colacompany.com': 'coca-cola.com',
+  'thewaltdisneycompany.com': 'disney.com',
   'cspx.com': 'ishares.com',
   'csp1.com': 'ishares.com',
-  'sxr8.com': 'ishares.com'
+  'sxr8.com': 'ishares.com',
+  'mcd.com': 'mcdonalds.com',
+  'hd.com': 'homedepot.com',
+  'low.com': 'lowes.com',
+  'tgt.com': 'target.com',
+  'nvo.com': 'novonordisk.com',
+  'unh.com': 'unitedhealthgroup.com',
+  'lmt.com': 'lockheedmartin.com',
+  'smci.com': 'supermicro.com',
+  'mstr.com': 'microstrategy.com',
+  'net.com': 'cloudflare.com',
+  'ddog.com': 'datadoghq.com',
+  'rklb.com': 'rocketlabusa.com',
+  'asts.com': 'ast-science.com'
 };
 
 /**
@@ -329,17 +505,138 @@ export function formatFaviconUrl(domain: string): string {
 export const CUSTOM_TICKER_LOGOS: Record<string, string> = {
   'KO': '/logos/ko.svg',
   'COKE': '/logos/ko.svg',
+  'ORCL': '/logos/orcl.svg',
+  'ORACLE': '/logos/orcl.svg',
 };
 
+export interface TickerTheme {
+  gradient: string;
+  text: string;
+  ring: string;
+  accent: string;
+  name: string;
+}
+
+export const TICKER_PALETTES: TickerTheme[] = [
+  // 0: Deep Sapphire
+  {
+    gradient: 'from-blue-600 via-indigo-700 to-slate-950',
+    text: 'text-blue-50',
+    ring: 'ring-blue-400/30',
+    accent: 'bg-blue-400',
+    name: 'Sapphire',
+  },
+  // 1: Emerald Cyber
+  {
+    gradient: 'from-emerald-600 via-teal-700 to-emerald-950',
+    text: 'text-emerald-50',
+    ring: 'ring-emerald-400/30',
+    accent: 'bg-emerald-400',
+    name: 'Emerald',
+  },
+  // 2: Royal Violet
+  {
+    gradient: 'from-violet-600 via-purple-700 to-slate-950',
+    text: 'text-violet-50',
+    ring: 'ring-purple-400/30',
+    accent: 'bg-purple-400',
+    name: 'Violet',
+  },
+  // 3: Radiant Amber / Ochre
+  {
+    gradient: 'from-amber-600 via-orange-700 to-stone-950',
+    text: 'text-amber-50',
+    ring: 'ring-amber-400/30',
+    accent: 'bg-amber-400',
+    name: 'Amber',
+  },
+  // 4: Crimson Ruby
+  {
+    gradient: 'from-rose-600 via-red-700 to-stone-950',
+    text: 'text-rose-50',
+    ring: 'ring-rose-400/30',
+    accent: 'bg-rose-400',
+    name: 'Ruby',
+  },
+  // 5: Electric Cyan
+  {
+    gradient: 'from-cyan-600 via-blue-700 to-slate-950',
+    text: 'text-cyan-50',
+    ring: 'ring-cyan-400/30',
+    accent: 'bg-cyan-400',
+    name: 'Cyan',
+  },
+  // 6: Obsidian Carbon
+  {
+    gradient: 'from-neutral-700 via-zinc-800 to-neutral-950',
+    text: 'text-zinc-100',
+    ring: 'ring-zinc-400/30',
+    accent: 'bg-zinc-400',
+    name: 'Carbon',
+  },
+  // 7: Deep Cobalt
+  {
+    gradient: 'from-sky-600 via-blue-800 to-slate-950',
+    text: 'text-sky-50',
+    ring: 'ring-sky-400/30',
+    accent: 'bg-sky-400',
+    name: 'Cobalt',
+  },
+  // 8: Warm Copper
+  {
+    gradient: 'from-orange-600 via-amber-800 to-neutral-950',
+    text: 'text-orange-50',
+    ring: 'ring-orange-400/30',
+    accent: 'bg-orange-400',
+    name: 'Copper',
+  },
+  // 9: Vivid Magenta
+  {
+    gradient: 'from-fuchsia-600 via-pink-700 to-slate-950',
+    text: 'text-fuchsia-50',
+    ring: 'ring-fuchsia-400/30',
+    accent: 'bg-fuchsia-400',
+    name: 'Magenta',
+  },
+  // 10: Forest Jade
+  {
+    gradient: 'from-teal-600 via-emerald-800 to-slate-950',
+    text: 'text-teal-50',
+    ring: 'ring-teal-400/30',
+    accent: 'bg-teal-400',
+    name: 'Jade',
+  },
+  // 11: Midnight Indigo
+  {
+    gradient: 'from-slate-700 via-indigo-900 to-black',
+    text: 'text-indigo-100',
+    ring: 'ring-indigo-400/30',
+    accent: 'bg-indigo-400',
+    name: 'Indigo',
+  },
+];
+
+export function getTickerTheme(ticker: string): TickerTheme {
+  const clean = (ticker || '').trim().toUpperCase();
+  if (!clean) return TICKER_PALETTES[0];
+  let hash = 0;
+  for (let i = 0; i < clean.length; i++) {
+    hash = (hash << 5) - hash + clean.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % TICKER_PALETTES.length;
+  return TICKER_PALETTES[index];
+}
+
 /**
- * Resolves or repairs a ticker logo URL, ensuring known tickers (Coke, Barclays, VUAG, etc.)
+ * Resolves or repairs a ticker logo URL, ensuring known tickers (Coke, Oracle, Barclays, VUAG, etc.)
  * point to their verified high-res logos.
  */
 export function resolveTickerLogoUrl(ticker: string, currentUrl?: string, companyName?: string): string {
   const cleanTicker = (ticker || '').trim().toUpperCase();
   const baseTicker = cleanTicker.split('.')[0];
 
-  // 1. Direct custom high-fidelity SVG logos (e.g. Coca-Cola's iconic red disc badge)
+  // 1. Direct custom high-fidelity SVG logos (e.g. Coca-Cola, Oracle)
   if (CUSTOM_TICKER_LOGOS[cleanTicker]) {
     return CUSTOM_TICKER_LOGOS[cleanTicker];
   }
@@ -351,6 +648,9 @@ export function resolveTickerLogoUrl(ticker: string, currentUrl?: string, compan
     if (lowerName.includes('coca-cola') || lowerName.includes('coca cola') || lowerName.includes('coke')) {
       return '/logos/ko.svg';
     }
+    if (lowerName.includes('oracle')) {
+      return '/logos/orcl.svg';
+    }
   }
 
   // 2. Check if currentUrl uses an erroneous or custom domain
@@ -360,6 +660,9 @@ export function resolveTickerLogoUrl(ticker: string, currentUrl?: string, compan
     }
     if (currentUrl.includes('coca-cola') || currentUrl.includes('coca-colacompany')) {
       return '/logos/ko.svg';
+    }
+    if (currentUrl.includes('oracle.com') || cleanTicker === 'ORCL') {
+      return '/logos/orcl.svg';
     }
     for (const [badDomain, goodDomain] of Object.entries(BAD_DOMAINS_MAP)) {
       if (currentUrl.includes(badDomain)) {
@@ -500,6 +803,8 @@ export const KNOWN_TICKER_NAMES: Record<string, string> = {
   'ARM': 'Arm Holdings plc',
   'TSM': 'Taiwan Semiconductor Manufacturing Company',
   'ASML': 'ASML Holding N.V.',
+  'SAP': 'SAP SE',
+  'SAP.DE': 'SAP SE',
   'SMCI': 'Super Micro Computer, Inc.',
   'DELL': 'Dell Technologies Inc.',
   'ORCL': 'Oracle Corporation',

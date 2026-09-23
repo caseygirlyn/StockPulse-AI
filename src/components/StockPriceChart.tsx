@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
-  AreaChart, 
+  ComposedChart,
   Area, 
   Line, 
+  Bar,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -17,21 +18,27 @@ import {
   Eye, 
   EyeOff, 
   Target, 
-  ShieldAlert, 
   Shield,
-  Volume2,
+  BarChart2,
   Lock,
   ArrowRight,
   Zap,
   Crosshair,
   Layers,
-  ArrowUpRight,
-  Anchor
+  Anchor,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Activity,
+  CheckCircle2,
+  AlertTriangle,
+  Minus
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { type StockData } from '../services/geminiService';
 import { cn, formatCurrency } from '../utils';
 import { useTheme } from '../context/ThemeContext';
+import { getCanonicalLevels } from '../utils/canonicalLevels';
 
 interface StockPriceChartProps {
   data: StockData;
@@ -41,6 +48,8 @@ interface StockPriceChartProps {
     price: number;
     volume: number;
     ma5: number | null;
+    ma20?: number | null;
+    ma50?: number | null;
     avwapAth?: number | null;
   }>;
   avgPrice: string;
@@ -48,7 +57,7 @@ interface StockPriceChartProps {
   lastUpdated: Date;
 }
 
-export default function StockPriceChart({
+function StockPriceChart({
   data,
   chartData,
   avgPrice,
@@ -57,23 +66,38 @@ export default function StockPriceChart({
 }: StockPriceChartProps) {
   const { theme } = useTheme();
 
-  // Chart display toggles
-  const [showMA5, setShowMA5] = useState(true);
-  const [showAVWAP, setShowAVWAP] = useState(true);
-  const [showChannelBands, setShowChannelBands] = useState(true);
+  // Chart layer visibility toggles
+  // Default active layers: Market Price · S/R Zones · Key Target & Risk Levels · 20D MA · Volume
+  // Everything else is toggleable on demand: Cost Basis, 5D MA, ATH VWAP, 50D MA
+  const [showZones, setShowZones] = useState(true);
   const [showKeyLevels, setShowKeyLevels] = useState(true);
-  const [showEntry, setShowEntry] = useState(true);
+  const [showMA20, setShowMA20] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
+
+  const [showMA5, setShowMA5] = useState(false);
+  const [showMA50, setShowMA50] = useState(false);
+  const [showAVWAP, setShowAVWAP] = useState(false);
+  const [showEntry, setShowEntry] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(false);
 
   const numAvgPrice = parseFloat(avgPrice) || 0;
-  const currentPrice = data.currentPrice || 0;
-  const support = data.analysis?.support || 0;
-  const resistance = data.analysis?.resistance || 0;
-  const idealEntry = data.recommendation?.idealEntryPrice || 0;
-  const profitTarget = data.recommendation?.profitTarget || 0;
-  const stopLoss = data.recommendation?.stopLoss || 0;
+  const canonicalLevels = useMemo(() => getCanonicalLevels(data, currency), [data, currency]);
+  const currentPrice = canonicalLevels.currentPrice;
+  
+  // Canonical levels & zones
+  const support = canonicalLevels.addZone.high;
+  const resistance = canonicalLevels.breakout.price;
+  const majorSupport = data.analysis?.majorSupport || canonicalLevels.addZone.low;
+  const supportZone = { low: canonicalLevels.addZone.low, high: canonicalLevels.addZone.high };
+  const resistanceZone = data.analysis?.resistanceZone || { low: Number((resistance * 0.992).toFixed(2)), high: Number((resistance * 1.015).toFixed(2)) };
+  
+  const idealEntry = canonicalLevels.addZone.high;
+  const profitTarget = canonicalLevels.target.price;
+  const stopLoss = canonicalLevels.risk.price;
   const avwapAth = data.avwapAth;
+  const trend = data.analysis?.trend || (currentPrice >= (data.ma20 || data.ma5) ? "Bullish" : "Bearish");
 
-  // Calculate 30-day statistical highlights
+  // Calculate 30-day statistical highlights (Hard Market Data)
   const stats = useMemo(() => {
     if (!chartData || chartData.length === 0) return null;
 
@@ -82,6 +106,7 @@ export default function StockPriceChart({
     let minDate = chartData[0].displayDate;
     let maxDate = chartData[0].displayDate;
     let totalVol = 0;
+    let maxVol = 0;
 
     chartData.forEach(pt => {
       if (pt.price < minPrice) {
@@ -93,12 +118,13 @@ export default function StockPriceChart({
         maxDate = pt.displayDate;
       }
       totalVol += pt.volume;
+      if (pt.volume > maxVol) maxVol = pt.volume;
     });
 
     const firstPrice = chartData[0].price;
     const lastPrice = chartData[chartData.length - 1].price;
     const periodChange = lastPrice - firstPrice;
-    const periodChangePercent = (periodChange / firstPrice) * 100;
+    const periodChangePercent = firstPrice > 0 ? (periodChange / firstPrice) * 100 : 0;
     const avgVol = totalVol / chartData.length;
 
     return {
@@ -109,61 +135,25 @@ export default function StockPriceChart({
       periodChange,
       periodChangePercent,
       avgVol,
+      maxVol: maxVol || 1000000,
       firstPrice,
       lastPrice
     };
   }, [chartData]);
 
-  // Key Technical Levels Metrics
-  const channelMetrics = useMemo(() => {
-    const channelSpan = resistance > support ? resistance - support : 0;
-    const channelPercent = support > 0 ? ((resistance - support) / support) * 100 : 0;
-
-    // Current price position within Support -> Resistance (0% to 100%)
-    let currentInChannelPercent = 50;
-    if (channelSpan > 0) {
-      currentInChannelPercent = Math.min(100, Math.max(0, ((currentPrice - support) / channelSpan) * 100));
-    }
-
-    // Distance to Support and Resistance
-    const distToSupport = currentPrice - support;
-    const distToSupportPercent = support > 0 ? ((currentPrice - support) / support) * 100 : 0;
-
-    const distToResistance = resistance - currentPrice;
-    const distToResistancePercent = currentPrice > 0 ? ((resistance - currentPrice) / currentPrice) * 100 : 0;
-
-    // Entry position (either user entry or ideal entry)
-    const effectiveEntry = numAvgPrice > 0 ? numAvgPrice : idealEntry;
-    let entryInChannelPercent = 50;
-    if (channelSpan > 0 && effectiveEntry > 0) {
-      entryInChannelPercent = Math.min(100, Math.max(0, ((effectiveEntry - support) / channelSpan) * 100));
-    }
-
-    const distFromEntry = effectiveEntry > 0 ? currentPrice - effectiveEntry : 0;
-    const distFromEntryPercent = effectiveEntry > 0 ? ((currentPrice - effectiveEntry) / effectiveEntry) * 100 : 0;
-
-    return {
-      channelSpan,
-      channelPercent,
-      currentInChannelPercent,
-      distToSupport,
-      distToSupportPercent,
-      distToResistance,
-      distToResistancePercent,
-      effectiveEntry,
-      entryInChannelPercent,
-      distFromEntry,
-      distFromEntryPercent
-    };
-  }, [currentPrice, support, resistance, numAvgPrice, idealEntry]);
-
-  // Compute padded Y-Axis bounds so all key levels fit nicely
+  // Compute padded Y-Axis bounds so price and indicators fit properly
   const yDomain = useMemo(() => {
     if (!chartData || chartData.length === 0) return ['auto', 'auto'];
 
     const prices = chartData.map(d => d.price);
     if (showMA5) {
       chartData.forEach(d => { if (d.ma5) prices.push(d.ma5); });
+    }
+    if (showMA20) {
+      chartData.forEach(d => { if (d.ma20) prices.push(d.ma20); });
+    }
+    if (showMA50) {
+      chartData.forEach(d => { if (d.ma50) prices.push(d.ma50); });
     }
     if (showAVWAP) {
       chartData.forEach(d => { if (d.avwapAth) prices.push(d.avwapAth); });
@@ -179,24 +169,29 @@ export default function StockPriceChart({
       if (resistance > 0) prices.push(resistance);
       if (idealEntry > 0) prices.push(idealEntry);
     }
+    if (showZones) {
+      if (supportZone.low > 0) prices.push(supportZone.low);
+      if (resistanceZone.high > 0) prices.push(resistanceZone.high);
+    }
 
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const padding = (max - min) * 0.08 || 5;
 
     return [Math.floor(min - padding), Math.ceil(max + padding)];
-  }, [chartData, showMA5, showAVWAP, showEntry, showKeyLevels, numAvgPrice, profitTarget, stopLoss, support, resistance, idealEntry, avwapAth]);
+  }, [chartData, showMA5, showMA20, showMA50, showAVWAP, showEntry, showKeyLevels, showZones, numAvgPrice, profitTarget, stopLoss, support, resistance, idealEntry, avwapAth, supportZone, resistanceZone]);
 
   // Format compact volume (e.g., 42.5M)
   const formatCompactVol = (vol: number) => {
+    if (!vol) return '0';
     if (vol >= 1_000_000_000) return `${(vol / 1_000_000_000).toFixed(1)}B`;
     if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
     if (vol >= 1_000) return `${(vol / 1_000).toFixed(1)}K`;
     return vol.toString();
   };
 
-  // Custom Chart Tooltip with detailed breakdown
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  // Custom Chart Tooltip with comprehensive multi-indicator inspection
+  const CustomTooltip = useCallback(({ active, payload, label }: any) => {
     if (!active || !payload || !payload.length) return null;
 
     const currentPoint = payload[0]?.payload;
@@ -204,12 +199,14 @@ export default function StockPriceChart({
 
     const pointPrice = currentPoint.price;
     const pointMA5 = currentPoint.ma5;
+    const pointMA20 = currentPoint.ma20;
+    const pointMA50 = currentPoint.ma50;
     const pointAVWAP = currentPoint.avwapAth;
     const pointVol = currentPoint.volume;
     const pointDate = currentPoint.date;
 
     const diffVsEntry = numAvgPrice > 0 ? ((pointPrice - numAvgPrice) / numAvgPrice) * 100 : null;
-    const diffVsMA5 = pointMA5 ? ((pointPrice - pointMA5) / pointMA5) * 100 : null;
+    const diffVsMA20 = pointMA20 ? ((pointPrice - pointMA20) / pointMA20) * 100 : null;
     const diffVsAVWAP = pointAVWAP ? ((pointPrice - pointAVWAP) / pointAVWAP) * 100 : null;
 
     let formattedDate = label;
@@ -220,7 +217,7 @@ export default function StockPriceChart({
     }
 
     return (
-      <div className="bg-white/95 dark:bg-[#141414]/95 backdrop-blur-md p-4 rounded-2xl border border-black/10 dark:border-white/10 shadow-2xl space-y-2.5 min-w-[230px]">
+      <div className="bg-white/95 dark:bg-[#141414]/95 backdrop-blur-md p-4 rounded-2xl border border-black/10 dark:border-white/10 shadow-2xl space-y-2.5 min-w-[250px]">
         <div className="flex items-center justify-between pb-2 border-b border-black/5 dark:border-white/5">
           <span className="text-[10px] font-black uppercase tracking-wider text-black/40 dark:text-white/40">
             {formattedDate}
@@ -230,10 +227,10 @@ export default function StockPriceChart({
           </span>
         </div>
 
-        {/* Price Row */}
+        {/* Closing Price */}
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-black/60 dark:text-white/60 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
             Closing Price
           </span>
           <span className="text-sm font-black text-black dark:text-white font-mono">
@@ -241,35 +238,61 @@ export default function StockPriceChart({
           </span>
         </div>
 
-        {/* MA5 Row */}
-        {pointMA5 !== null && pointMA5 !== undefined && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-black/60 dark:text-white/60 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              5-Day MA
-            </span>
-            <div className="text-right">
-              <span className="font-bold font-mono text-black/80 dark:text-white/80">
+        {/* Moving Averages Inspection */}
+        <div className="pt-1 space-y-1.5 border-t border-black/5 dark:border-white/5 text-[11px]">
+          {pointMA5 !== null && pointMA5 !== undefined && (
+            <div className="flex items-center justify-between">
+              <span className="text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1.5">
+                <span className="w-2 h-0.5 bg-amber-500" />
+                5-Day MA
+              </span>
+              <span className="font-mono font-bold text-black/80 dark:text-white/80">
                 {formatCurrency(pointMA5, currency)}
               </span>
-              {diffVsMA5 !== null && (
-                <span className={cn(
-                  "text-[9px] font-bold ml-1.5",
-                  diffVsMA5 >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
-                )}>
-                  ({diffVsMA5 >= 0 ? '+' : ''}{diffVsMA5.toFixed(1)}%)
-                </span>
-              )}
             </div>
-          </div>
-        )}
+          )}
+
+          {pointMA20 !== null && pointMA20 !== undefined && (
+            <div className="flex items-center justify-between">
+              <span className="text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1.5">
+                <span className="w-2 h-0.5 bg-blue-500" />
+                20-Day MA
+              </span>
+              <div className="text-right">
+                <span className="font-mono font-bold text-black/80 dark:text-white/80">
+                  {formatCurrency(pointMA20, currency)}
+                </span>
+                {diffVsMA20 !== null && (
+                  <span className={cn(
+                    "text-[9px] font-bold ml-1.5",
+                    diffVsMA20 >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
+                  )}>
+                    ({diffVsMA20 >= 0 ? '+' : ''}{diffVsMA20.toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {pointMA50 !== null && pointMA50 !== undefined && (
+            <div className="flex items-center justify-between">
+              <span className="text-purple-600 dark:text-purple-400 font-bold flex items-center gap-1.5">
+                <span className="w-2 h-0.5 bg-purple-500" />
+                50-Day MA
+              </span>
+              <span className="font-mono font-bold text-black/80 dark:text-white/80">
+                {formatCurrency(pointMA50, currency)}
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* ATH Anchored VWAP Row */}
         {pointAVWAP !== null && pointAVWAP !== undefined && (
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-black/5 dark:border-white/5">
             <span className="font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-500" />
-              ATH Anchored VWAP
+              <Anchor className="w-3 h-3 text-cyan-500" />
+              ATH AVWAP
             </span>
             <div className="text-right">
               <span className="font-bold font-mono text-cyan-700 dark:text-cyan-300">
@@ -289,13 +312,13 @@ export default function StockPriceChart({
 
         {/* Volume Row */}
         {pointVol > 0 && (
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-black/5 dark:border-white/5">
             <span className="font-bold text-black/60 dark:text-white/60 flex items-center gap-1.5">
-              <Volume2 className="w-3 h-3 text-blue-500" />
-              Trading Volume
+              <BarChart2 className="w-3 h-3 text-emerald-500" />
+              Daily Volume
             </span>
             <span className="font-bold font-mono text-black/80 dark:text-white/80">
-              {formatCompactVol(pointVol)} shares
+              {formatCompactVol(pointVol)}
             </span>
           </div>
         )}
@@ -315,181 +338,282 @@ export default function StockPriceChart({
         )}
       </div>
     );
-  };
+  }, [numAvgPrice, currency, data.ticker]);
 
   return (
-    <div className="bg-white dark:bg-[#141414] p-5 md:p-6 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-sm space-y-5">
-      {/* Chart Header & Statistical Highlights */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-black/5 dark:border-white/5">
+    <div className="bg-white dark:bg-[#121212] p-3 sm:p-4 md:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs space-y-3.5 sm:space-y-4">
+      
+      {/* ======================================================== */}
+      {/* SECTION 1: HEADER & MARKET-OBSERVED CONTEXT (HARD DATA)  */}
+      {/* ======================================================== */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-black/5 dark:border-white/5">
         <div>
-          <div className="flex items-center gap-2">
-            <h4 className="font-black text-lg tracking-tight">Price Performance & Key Technical Levels</h4>
-            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
-              30-Day
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="font-black text-lg tracking-tight">Price Performance & Structural Analysis</h4>
+            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-black/70 dark:text-white/70">
+              30-Day Window
+            </span>
+            {/* Trend State Pill */}
+            <span className={cn(
+              "text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1",
+              trend === 'Bullish' 
+                ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30"
+                : trend === 'Bearish'
+                ? "bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 border border-red-500/30"
+                : "bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+            )}>
+              <Activity className="w-3 h-3" />
+              Trend: {trend}
             </span>
           </div>
-          <p className="text-[10px] font-medium text-black/40 dark:text-white/40">
-            Interactive technical chart with connected Support, Entry, and Resistance corridor bands
+          <p className="text-[10px] font-medium text-black/40 dark:text-white/40 mt-0.5">
+            Transparent quantitative framework distinguishing hard market range from modeled support/resistance zones
           </p>
         </div>
 
-        {/* Period Highlights Badges */}
+        {/* 30D Price Highlights Badges */}
         {stats && (
-          <div className="flex items-center gap-2 flex-wrap text-xs">
-            {/* Period Range Change */}
-            <div className="p-2 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap text-xs">
+            {/* Explicit 30D Change Presentation */}
+            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
               <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-                30D Return
+                30D Price Change
               </span>
-              <span className={cn(
-                "font-black font-mono flex items-center gap-0.5",
+              <div className={cn(
+                "font-black font-mono text-xs flex items-center gap-1",
                 stats.periodChange >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
               )}>
                 {stats.periodChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {stats.periodChange >= 0 ? '+' : ''}{stats.periodChangePercent.toFixed(2)}% ({formatCurrency(stats.periodChange, currency)})
-              </span>
+                <span>
+                  {stats.periodChange >= 0 ? '+' : ''}{formatCurrency(stats.periodChange, currency)} ({stats.periodChange >= 0 ? '+' : ''}{stats.periodChangePercent.toFixed(2)}%)
+                </span>
+              </div>
+              <div className="text-[9px] font-mono text-black/50 dark:text-white/50 flex items-center gap-1">
+                <span>{formatCurrency(stats.firstPrice, currency)}</span>
+                <ArrowRight className="w-2.5 h-2.5" />
+                <span className="font-bold text-black/80 dark:text-white/80">{formatCurrency(stats.lastPrice, currency)}</span>
+              </div>
             </div>
 
-            {/* Period High */}
-            <div className="p-2 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
+            {/* 30D Hard Market Range */}
+            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
               <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-                Period High
+                30D Market Range
               </span>
-              <span className="font-black font-mono text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(stats.maxPrice, currency)}
-              </span>
+              <div className="text-xs font-black font-mono text-black dark:text-white flex items-center gap-1.5">
+                <span className="text-red-500">{formatCurrency(stats.minPrice, currency)}</span>
+                <span className="text-black/30 dark:text-white/30">to</span>
+                <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(stats.maxPrice, currency)}</span>
+              </div>
+              <div className="text-[9px] font-medium text-black/40 dark:text-white/40">
+                Low on {stats.minDate} • High on {stats.maxDate}
+              </div>
             </div>
 
-            {/* Period Low */}
-            <div className="p-2 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
+            {/* Volume Liquidity Context */}
+            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
               <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-                Period Low
+                20D Avg Volume
               </span>
-              <span className="font-black font-mono text-red-500">
-                {formatCurrency(stats.minPrice, currency)}
-              </span>
+              <div className="text-xs font-black font-mono text-black dark:text-white flex items-center gap-1">
+                <BarChart2 className="w-3 h-3 text-emerald-500" />
+                <span>{formatCompactVol(data.avgVolume20d || stats.avgVol)}</span>
+                {data.relativeVolume !== undefined && (
+                  <span className={cn(
+                    "text-[9px] px-1 py-0.2 rounded font-mono font-bold",
+                    data.relativeVolume >= 1.2 ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300" : "bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60"
+                  )}>
+                    {data.relativeVolume}x vol
+                  </span>
+                )}
+              </div>
+              <div className="text-[9px] font-medium text-black/40 dark:text-white/40">
+                Daily participation
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Interactive Legend & Layer Visibility Toggles */}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-[10px] font-black uppercase tracking-wider">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Price Toggle */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+      {/* ======================================================== */}
+      {/* SECTION 2: INTERACTIVE LAYER & INDICATOR CONTROLS         */}
+      {/* ======================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          
+          {/* 1. Market Price (Base layer indicator) */}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-700">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
             <span>Market Price</span>
           </div>
 
-          {/* Support / Resistance Connected Corridor Toggle */}
-          {support > 0 && resistance > 0 && (
-            <button
-              onClick={() => setShowChannelBands(!showChannelBands)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer",
-                showChannelBands
-                  ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/30"
-                  : "bg-black/[0.02] dark:bg-white/[0.02] text-black/40 dark:text-white/40 border-black/5 dark:border-white/5 opacity-50"
-              )}
-              title="Toggle Connected Support & Resistance Corridor Band"
-            >
-              <Layers className="w-3 h-3" />
-              <span>Channel Corridor Band</span>
-              {showChannelBands ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
-            </button>
-          )}
+          {/* 2. S/R Dynamic Corridor Zones (Default ON) */}
+          <button
+            onClick={() => setShowZones(!showZones)}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
+              showZones
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
+            )}
+            title="Toggle Visual Support and Resistance Corridor Zones"
+          >
+            <Layers className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
+            <span>S/R Zones</span>
+            {showZones ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
+          </button>
 
-          {/* Key Targets & Lines Toggle */}
+          {/* 3. Key Reference Lines (Default ON) */}
           <button
             onClick={() => setShowKeyLevels(!showKeyLevels)}
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer",
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
               showKeyLevels
-                ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
-                : "bg-black/[0.02] dark:bg-white/[0.02] text-black/40 dark:text-white/40 border-black/5 dark:border-white/5 opacity-50"
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
             )}
-            title="Toggle Support, Resistance, Stop Loss, and Target Price Lines"
+            title="Toggle Key Levels (Target, Support, Resistance, Stop Loss)"
           >
-            <Target className="w-3 h-3" />
-            <span>Support & Resistance Lines</span>
+            <Target className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
+            <span>Key Levels</span>
             {showKeyLevels ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
           </button>
 
-          {/* User Entry Price Toggle */}
+          {/* 4. 20-Day MA (Default ON) */}
+          <button
+            onClick={() => setShowMA20(!showMA20)}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
+              showMA20
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
+            )}
+            title="Toggle 20-Day Swing Moving Average Line"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />
+            <span>20D MA</span>
+            {showMA20 ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
+          </button>
+
+          {/* 5. Volume Histogram (Default ON) */}
+          <button
+            onClick={() => setShowVolume(!showVolume)}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
+              showVolume
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
+            )}
+            title="Toggle Volume Histogram Bars"
+          >
+            <BarChart2 className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
+            <span>Volume</span>
+            {showVolume ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
+          </button>
+
+          {/* --- Toggleable On-Demand Layers --- */}
+
+          {/* Cost Basis Toggle */}
           {numAvgPrice > 0 && (
             <button
               onClick={() => setShowEntry(!showEntry)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer",
+                "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
                 showEntry
-                  ? "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
-                  : "bg-black/[0.02] dark:bg-white/[0.02] text-black/40 dark:text-white/40 border-black/5 dark:border-white/5 opacity-50"
+                  ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                  : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
               )}
               title="Toggle Cost Basis (Avg Entry) Line"
             >
-              <div className="w-3 h-0.5 bg-purple-500 border-t border-dashed border-purple-500" />
-              <span>Cost Basis ({formatCurrency(numAvgPrice, currency)})</span>
+              <div className="w-2 h-0.5 bg-blue-500 shrink-0" />
+              <span>Cost Basis</span>
               {showEntry ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
             </button>
           )}
 
-          {/* MA5 Toggle */}
+          {/* 5-Day MA Toggle */}
           <button
             onClick={() => setShowMA5(!showMA5)}
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer",
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
               showMA5
-                ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
-                : "bg-black/[0.02] dark:bg-white/[0.02] text-black/40 dark:text-white/40 border-black/5 dark:border-white/5 opacity-50"
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
             )}
             title="Toggle 5-Day Moving Average Line"
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            <span>5-Day MA</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+            <span>5D MA</span>
             {showMA5 ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
           </button>
 
-          {/* Anchored VWAP (ATH) Toggle */}
+          {/* ATH VWAP Toggle */}
           {avwapAth && (
             <button
               onClick={() => setShowAVWAP(!showAVWAP)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer",
+                "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
                 showAVWAP
-                  ? "bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30"
-                  : "bg-black/[0.02] dark:bg-white/[0.02] text-black/40 dark:text-white/40 border-black/5 dark:border-white/5 opacity-50"
+                  ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                  : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
               )}
-              title="Toggle Anchored Volume Weighted Average Price from All-Time High"
+              title="Toggle Anchored Volume Weighted Average Price from ATH"
             >
-              <Anchor className="w-3 h-3 text-cyan-500" />
-              <span>ATH AVWAP ({formatCurrency(avwapAth.avwapPrice, currency)})</span>
+              <Anchor className="w-3 h-3 text-neutral-500 dark:text-neutral-400" />
+              <span>ATH VWAP</span>
               {showAVWAP ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
             </button>
           )}
+
+          {/* 50-Day MA Toggle */}
+          <button
+            onClick={() => setShowMA50(!showMA50)}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all cursor-pointer",
+              showMA50
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border-neutral-300 dark:border-neutral-700 font-medium shadow-2xs"
+                : "bg-transparent text-neutral-400 dark:text-neutral-500 border-neutral-200/60 dark:border-neutral-800 opacity-60 hover:opacity-100"
+            )}
+            title="Toggle 50-Day Intermediate Moving Average Line"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-700 shrink-0" />
+            <span>50D MA</span>
+            {showMA50 ? <Eye className="w-3 h-3 ml-0.5" /> : <EyeOff className="w-3 h-3 ml-0.5" />}
+          </button>
         </div>
 
-        <span className="text-[9px] font-bold text-black/30 dark:text-white/30 hidden sm:inline">
-          Hover candles for live metrics
-        </span>
+        {/* Expandable Methodology Toggle Button */}
+        <button
+          onClick={() => setShowMethodology(!showMethodology)}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 transition-all cursor-pointer"
+        >
+          <HelpCircle className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+          <span>Why These Levels?</span>
+          {showMethodology ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
       </div>
 
-      {/* Chart Canvas */}
-      <div className="h-[320px] md:h-[420px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart 
+      {/* ======================================================== */}
+      {/* SECTION 3: CHARTS (PRICE + HISTOGRAM INTEGRATED)          */}
+      {/* ======================================================== */}
+      <div className="h-[320px] sm:h-[360px] md:h-[420px] w-full">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={50}>
+          <ComposedChart 
             data={chartData} 
-            margin={{ top: 20, right: 30, left: 10, bottom: 10 }}
+            margin={{ top: 8, right: 12, left: -10, bottom: 4 }}
           >
             <defs>
               <linearGradient id="colorPriceGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.22} />
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
               </linearGradient>
-              <linearGradient id="channelCorridorGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.12} />
-                <stop offset="50%" stopColor="#6366f1" stopOpacity={0.05} />
-                <stop offset="100%" stopColor="#10b981" stopOpacity={0.12} />
+              <linearGradient id="supportZoneGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#10b981" stopOpacity={0.16} />
+                <stop offset="100%" stopColor="#10b981" stopOpacity={0.06} />
+              </linearGradient>
+              <linearGradient id="resistanceZoneGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.16} />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity={0.06} />
               </linearGradient>
             </defs>
 
@@ -499,52 +623,47 @@ export default function StockPriceChart({
               stroke={theme === 'dark' ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"} 
             />
 
-            {/* Support-to-Resistance Shaded Channel Corridor Area */}
-            {showChannelBands && support > 0 && resistance > 0 && resistance > support && (
-              <ReferenceArea
-                y1={support}
-                y2={resistance}
-                fillOpacity={0.08}
-                {...({
-                  stroke: "#6366f1",
-                  strokeOpacity: 0.2,
-                  strokeDasharray: "2 2",
-                  fill: "url(#channelCorridorGradient)"
-                } as any)}
-              />
-            )}
-
-            {/* X-Axis with clean date labeling */}
+            {/* X-Axis */}
             <XAxis 
               dataKey="displayDate" 
               axisLine={{ stroke: theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }} 
               tickLine={false} 
               tick={{ 
                 fontSize: 10, 
-                fontWeight: 800, 
+                fontWeight: 700, 
                 fill: theme === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' 
               }}
-              dy={8}
+              dy={4}
               interval="preserveStartEnd"
             />
 
-            {/* Y-Axis with padded width and proper currency formatting */}
+            {/* Primary Y-Axis (Price) */}
             <YAxis 
+              yAxisId="price"
               domain={yDomain as any} 
               axisLine={false} 
               tickLine={false} 
-              width={75}
+              width={60}
               tickCount={6}
               tick={{ 
                 fontSize: 10, 
-                fontWeight: 800, 
+                fontWeight: 700, 
                 fill: theme === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' 
               }}
               tickFormatter={(val) => formatCurrency(val, currency)}
             />
 
+            {/* Secondary Y-Axis (Volume Histogram - Occupies bottom 20% of canvas) */}
+            <YAxis 
+              yAxisId="volume"
+              orientation="right"
+              domain={[0, (stats?.maxVol || 1000000) * 4.5]} 
+              hide
+            />
+
             <Tooltip 
-              content={<CustomTooltip />} 
+              content={CustomTooltip} 
+              isAnimationActive={false}
               cursor={{ 
                 stroke: '#10b981', 
                 strokeWidth: 1.5, 
@@ -552,17 +671,50 @@ export default function StockPriceChart({
               }} 
             />
 
-            {/* Resistance Reference Line (Ceiling) */}
-            {showKeyLevels && resistance > 0 && (
+            {/* Support Zone Shading (Low to High band) */}
+            {showZones && supportZone && supportZone.high > supportZone.low && (
+              <ReferenceArea
+                yAxisId="price"
+                y1={supportZone.low}
+                y2={supportZone.high}
+                fill="#10b981"
+                fillOpacity={0.10}
+                {...({
+                  stroke: "#10b981",
+                  strokeOpacity: 0.35,
+                  strokeDasharray: "2 2",
+                } as any)}
+              />
+            )}
+
+            {/* Resistance Zone Shading (Low to High band) */}
+            {showZones && resistanceZone && resistanceZone.high > resistanceZone.low && (
+              <ReferenceArea
+                yAxisId="price"
+                y1={resistanceZone.low}
+                y2={resistanceZone.high}
+                fill="#6366f1"
+                fillOpacity={0.10}
+                {...({
+                  stroke: "#6366f1",
+                  strokeOpacity: 0.35,
+                  strokeDasharray: "2 2",
+                } as any)}
+              />
+            )}
+
+            {/* Breakout Confirmation Reference Line */}
+            {showKeyLevels && canonicalLevels.breakout.price > 0 && (
               <ReferenceLine 
-                y={resistance} 
-                stroke="#6366f1" 
-                strokeDasharray="5 5" 
-                strokeWidth={2}
+                yAxisId="price"
+                y={canonicalLevels.breakout.price} 
+                stroke="#2563eb" 
+                strokeDasharray="4 4" 
+                strokeWidth={1}
                 label={{ 
                   position: 'insideTopRight', 
-                  value: `RESISTANCE: ${formatCurrency(resistance, currency)}`, 
-                  fill: '#6366f1', 
+                  value: `BREAKOUT: ${canonicalLevels.breakout.display}`, 
+                  fill: '#2563eb', 
                   fontSize: 9, 
                   fontWeight: 900,
                   offset: 8
@@ -570,16 +722,17 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* Target Price Reference Line */}
-            {showKeyLevels && profitTarget > 0 && Math.abs(profitTarget - resistance) > 2 && (
+            {/* Profit Target Reference Line */}
+            {showKeyLevels && canonicalLevels.target.price > 0 && Math.abs(canonicalLevels.target.price - canonicalLevels.breakout.price) > 2 && (
               <ReferenceLine 
-                y={profitTarget} 
+                yAxisId="price"
+                y={canonicalLevels.target.price} 
                 stroke="#10b981" 
-                strokeDasharray="5 5" 
-                strokeWidth={1.5}
+                strokeDasharray="4 4" 
+                strokeWidth={1}
                 label={{ 
                   position: 'insideTopRight', 
-                  value: `TARGET: ${formatCurrency(profitTarget, currency)}`, 
+                  value: `TARGET: ${canonicalLevels.target.display}`, 
                   fill: '#10b981', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -588,17 +741,18 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* Cost Basis (User Entry Price) Reference Line */}
+            {/* User Cost Basis Reference Line */}
             {showEntry && numAvgPrice > 0 && (
               <ReferenceLine 
+                yAxisId="price"
                 y={numAvgPrice} 
-                stroke="#a855f7" 
-                strokeDasharray="6 6" 
-                strokeWidth={1.5}
+                stroke="#3b82f6" 
+                strokeDasharray="5 5" 
+                strokeWidth={1}
                 label={{ 
                   position: 'insideTopLeft', 
                   value: `MY ENTRY: ${formatCurrency(numAvgPrice, currency)}`, 
-                  fill: '#a855f7', 
+                  fill: '#3b82f6', 
                   fontSize: 9, 
                   fontWeight: 900,
                   offset: 8
@@ -606,34 +760,17 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* Ideal AI Entry Reference Line (if user hasn't set entry) */}
-            {showKeyLevels && numAvgPrice === 0 && idealEntry > 0 && Math.abs(idealEntry - support) > 2 && (
+            {/* Canonical Add Zone Reference Line */}
+            {showKeyLevels && canonicalLevels.addZone.high > 0 && (
               <ReferenceLine 
-                y={idealEntry} 
-                stroke="#8b5cf6" 
-                strokeDasharray="4 4" 
-                strokeWidth={1.2}
-                label={{ 
-                  position: 'insideTopLeft', 
-                  value: `IDEAL ENTRY: ${formatCurrency(idealEntry, currency)}`, 
-                  fill: '#8b5cf6', 
-                  fontSize: 8, 
-                  fontWeight: 800,
-                  offset: 8
-                }}
-              />
-            )}
-
-            {/* Support Reference Line (Floor) */}
-            {showKeyLevels && support > 0 && (
-              <ReferenceLine 
-                y={support} 
+                yAxisId="price"
+                y={canonicalLevels.addZone.high} 
                 stroke="#059669" 
                 strokeDasharray="4 4" 
-                strokeWidth={2}
+                strokeWidth={1}
                 label={{ 
                   position: 'insideBottomLeft', 
-                  value: `SUPPORT: ${formatCurrency(support, currency)}`, 
+                  value: `ADD ZONE: ${canonicalLevels.addZone.display}`, 
                   fill: '#059669', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -642,16 +779,17 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* Stop Loss Reference Line */}
-            {showKeyLevels && stopLoss > 0 && Math.abs(stopLoss - support) > 2 && (
+            {/* Stop Loss (Risk) Reference Line */}
+            {showKeyLevels && canonicalLevels.risk.price > 0 && (
               <ReferenceLine 
-                y={stopLoss} 
+                yAxisId="price"
+                y={canonicalLevels.risk.price} 
                 stroke="#f43f5e" 
                 strokeDasharray="5 5" 
-                strokeWidth={1.5}
+                strokeWidth={1}
                 label={{ 
                   position: 'insideBottomRight', 
-                  value: `STOP LOSS: ${formatCurrency(stopLoss, currency)}`, 
+                  value: `STOP LOSS: ${canonicalLevels.risk.display}`, 
                   fill: '#f43f5e', 
                   fontSize: 8, 
                   fontWeight: 900,
@@ -660,39 +798,14 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* Price Area Series */}
-            <Area 
-              type="monotone" 
-              dataKey="price" 
-              name="Market Price"
-              stroke="#10b981" 
-              strokeWidth={3.5} 
-              fillOpacity={1} 
-              fill="url(#colorPriceGradient)" 
-              isAnimationActive={false}
-            />
-
-            {/* 5-Day Moving Average Line */}
-            {showMA5 && (
-              <Line 
-                type="monotone" 
-                dataKey="ma5" 
-                name="5-Day MA"
-                stroke="#f59e0b" 
-                strokeWidth={2} 
-                dot={false} 
-                strokeDasharray="4 4"
-                isAnimationActive={false}
-              />
-            )}
-
             {/* ATH Anchored VWAP Reference Line */}
             {showAVWAP && avwapAth && (
               <ReferenceLine 
+                yAxisId="price"
                 y={avwapAth.avwapPrice} 
                 stroke="#06b6d4" 
                 strokeDasharray="4 4" 
-                strokeWidth={2}
+                strokeWidth={1}
                 label={{ 
                   position: 'insideBottomRight', 
                   value: `ATH AVWAP: ${formatCurrency(avwapAth.avwapPrice, currency)}`, 
@@ -704,174 +817,182 @@ export default function StockPriceChart({
               />
             )}
 
-            {/* ATH Anchored VWAP Trend Line */}
-            {showAVWAP && (
+            {/* Volume Histogram Bars (sub-chart inside lower quartile) */}
+            {showVolume && (
+              <Bar 
+                yAxisId="volume"
+                dataKey="volume" 
+                name="Volume"
+                fill={theme === 'dark' ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.28)"}
+                isAnimationActive={false}
+                radius={[2, 2, 0, 0]}
+              />
+            )}
+
+            {/* Price Area Series */}
+            <Area 
+              yAxisId="price"
+              type="monotone" 
+              dataKey="price" 
+              name="Market Price"
+              stroke="#10b981" 
+              strokeWidth={1.5} 
+              fillOpacity={1} 
+              fill="url(#colorPriceGradient)" 
+              isAnimationActive={false}
+            />
+
+            {/* 5-Day MA Line */}
+            {showMA5 && (
               <Line 
+                yAxisId="price"
                 type="monotone" 
-                dataKey="avwapAth" 
-                name="ATH Anchored VWAP"
-                stroke="#06b6d4" 
-                strokeWidth={2.5} 
+                dataKey="ma5" 
+                name="5-Day MA"
+                stroke="#38bdf8" 
+                strokeWidth={1} 
                 dot={false} 
-                strokeDasharray="5 5"
+                strokeDasharray="4 4"
                 isAnimationActive={false}
               />
             )}
-          </AreaChart>
+
+            {/* 20-Day MA Line */}
+            {showMA20 && (
+              <Line 
+                yAxisId="price"
+                type="monotone" 
+                dataKey="ma20" 
+                name="20-Day MA"
+                stroke="#0284c7" 
+                strokeWidth={1.1} 
+                dot={false} 
+                isAnimationActive={false}
+              />
+            )}
+
+            {/* 50-Day MA Line */}
+            {showMA50 && (
+              <Line 
+                yAxisId="price"
+                type="monotone" 
+                dataKey="ma50" 
+                name="50-Day MA"
+                stroke="#1d4ed8" 
+                strokeWidth={1} 
+                dot={false} 
+                strokeDasharray="6 3"
+                isAnimationActive={false}
+              />
+            )}
+
+            {/* ATH Anchored VWAP Trend Line */}
+            {showAVWAP && (
+              <Line 
+                yAxisId="price"
+                type="monotone" 
+                dataKey="avwapAth" 
+                name="ATH Anchored VWAP"
+                stroke="#0284c7" 
+                strokeWidth={1.1} 
+                dot={false} 
+                strokeDasharray="4 4"
+                isAnimationActive={false}
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
       {/* ======================================================== */}
-      {/* CONNECTED TECHNICAL CORRIDOR: SUPPORT ➔ ENTRY ➔ RESISTANCE */}
+      {/* SECTION 4: EXPANDABLE LEVEL METHODOLOGY DRAWER           */}
       {/* ======================================================== */}
-      {support > 0 && resistance > 0 && (
-        <div className="p-4 md:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/[0.03] via-purple-500/[0.03] to-indigo-500/[0.03] border border-black/5 dark:border-white/5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+      {showMethodology && (
+        <div className="p-4 md:p-5 rounded-2xl bg-neutral-50 dark:bg-[#141414] border border-neutral-200/80 dark:border-neutral-800 space-y-3.5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <h5 className="font-bold text-xs uppercase tracking-wider text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+              <HelpCircle className="w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+              Quantitative Methodology: Why These Exact Levels?
+            </h5>
+            <span className="text-[9px] font-semibold text-neutral-400 dark:text-neutral-500">
+              Institutional Analytical Logic
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            {/* Immediate Support Methodology - Green (Actionable Positive) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                <Shield className="w-3.5 h-3.5" />
+                <span>Support Corridor Logic</span>
+              </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.analysis?.supportMethodology || `Derived from recent consolidation demand cluster and 20-Day SMA dynamic shelf beneath current trading range.`}
+              </p>
+            </div>
+
+            {/* Resistance Methodology - Blue (Confirmation / Technical) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400">
+                <Lock className="w-3.5 h-3.5" />
+                <span>Resistance Zone Logic</span>
+              </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.analysis?.resistanceMethodology || `Derived from upper channel supply bounds and swing high rejection wick clusters across recent trading sessions.`}
+              </p>
+            </div>
+
+            {/* Risk Boundary (Stop Loss) Methodology - Red (Hard Risk / Invalidation) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Stop Loss Rationale</span>
+              </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.recommendation?.stopLossMethodology || `Calibrated underneath the primary support floor. Invalidation of this structural boundary invalidates the current bullish geometry.`}
+              </p>
+            </div>
+
+            {/* Ideal Entry Methodology - Green (Actionable Positive) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
                 <Crosshair className="w-3.5 h-3.5" />
+                <span>Entry Geometry</span>
               </div>
-              <div>
-                <h5 className="font-black text-xs tracking-tight flex items-center gap-1.5">
-                  Connected Technical Price Corridor
-                  <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300">
-                    Channel Span: {formatCurrency(channelMetrics.channelSpan, currency)} ({channelMetrics.channelPercent.toFixed(1)}%)
-                  </span>
-                </h5>
-                <p className="text-[9px] font-medium text-black/40 dark:text-white/40">
-                  Visual relationship between key floor, your entry position, and resistance barrier
-                </p>
-              </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.recommendation?.entryMethodology || `Targets pullback buy confluence toward the dynamic moving average corridor rather than chasing breakouts at highs.`}
+              </p>
             </div>
 
-            <div className="flex items-center gap-2 text-[9px] font-black">
-              <span className="text-black/40 dark:text-white/40">Channel Position:</span>
-              <span className="px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5 font-mono text-black dark:text-white">
-                {channelMetrics.currentInChannelPercent.toFixed(0)}% from Support
-              </span>
-            </div>
-          </div>
-
-          {/* Connected Corridor Visual Track Bar */}
-          <div className="relative pt-6 pb-4">
-            {/* Background Track Line */}
-            <div className="h-3 w-full rounded-full bg-gradient-to-r from-emerald-500 via-purple-500 to-indigo-500 opacity-20 dark:opacity-30 relative" />
-            
-            {/* Active Position Fill */}
-            <div 
-              className="absolute top-6 left-0 h-3 rounded-l-full bg-gradient-to-r from-emerald-500 to-indigo-500 opacity-80"
-              style={{ width: `${Math.max(4, Math.min(100, channelMetrics.currentInChannelPercent))}%` }}
-            />
-
-            {/* Node 1: Support Floor Pin */}
-            <div className="absolute left-0 top-3 -translate-x-1/2 flex flex-col items-center">
-              <div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-[#141414] shadow-md flex items-center justify-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+            {/* Profit Target Methodology - Green (Actionable Positive) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                <Target className="w-3.5 h-3.5" />
+                <span>Profit Target Rationale</span>
               </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.recommendation?.targetMethodology || `Projected Fibonacci expansion extension upon confirmed breakout above the current resistance ceiling.`}
+              </p>
             </div>
 
-            {/* Node 2: Entry / Cost Basis Pin (if exists) */}
-            {channelMetrics.effectiveEntry > 0 && (
-              <div 
-                className="absolute top-3 -translate-x-1/2 flex flex-col items-center z-10"
-                style={{ left: `${Math.max(8, Math.min(92, channelMetrics.entryInChannelPercent))}%` }}
-              >
-                <div className="w-4 h-4 rounded-full bg-purple-500 border-2 border-white dark:border-[#141414] shadow-md flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                </div>
-                <div className="absolute -top-5 whitespace-nowrap px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-mono font-black text-[8px]">
-                  {numAvgPrice > 0 ? 'ENTRY' : 'IDEAL'}
-                </div>
+            {/* Moving Average Hierarchy - Blue (Confirmation / Technical) */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#181818] border border-black/5 dark:border-white/5 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400">
+                <Activity className="w-3.5 h-3.5" />
+                <span>Moving Average Alignment</span>
               </div>
-            )}
-
-            {/* Node 3: Current Market Price Pin (Glowing) */}
-            <div 
-              className="absolute top-2 -translate-x-1/2 flex flex-col items-center z-20"
-              style={{ left: `${Math.max(5, Math.min(95, channelMetrics.currentInChannelPercent))}%` }}
-            >
-              <div className="relative">
-                <span className="absolute -inset-1 rounded-full bg-emerald-500 animate-ping opacity-30" />
-                <div className="relative w-5 h-5 rounded-full bg-black dark:bg-white text-white dark:text-black border-2 border-emerald-500 shadow-xl flex items-center justify-center">
-                  <Zap className="w-2.5 h-2.5 text-emerald-400" />
-                </div>
-              </div>
-              <div className="absolute -top-5 whitespace-nowrap px-1.5 py-0.5 rounded bg-black dark:bg-white text-white dark:text-black font-mono font-black text-[8px] shadow-md">
-                LIVE {formatCurrency(currentPrice, currency)}
-              </div>
-            </div>
-
-            {/* Node 4: Resistance Ceiling Pin */}
-            <div className="absolute right-0 top-3 translate-x-1/2 flex flex-col items-center">
-              <div className="w-4 h-4 rounded-full bg-indigo-500 border-2 border-white dark:border-[#141414] shadow-md flex items-center justify-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-white" />
-              </div>
-            </div>
-          </div>
-
-          {/* Connected Level Stat Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-            {/* Support Card */}
-            <div className="p-3 rounded-xl bg-white dark:bg-[#1A1A1A] border border-emerald-500/20 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                  <Shield className="w-3 h-3" />
-                  Support Floor
-                </span>
-                <span className="text-[8px] font-bold text-black/40 dark:text-white/40">Safety Cushion</span>
-              </div>
-              <div className="text-sm font-black font-mono text-black dark:text-white">
-                {formatCurrency(support, currency)}
-              </div>
-              <div className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                {channelMetrics.distToSupport >= 0 ? `+${formatCurrency(channelMetrics.distToSupport, currency)} (${channelMetrics.distToSupportPercent.toFixed(1)}%) buffer` : `${formatCurrency(channelMetrics.distToSupport, currency)} below floor`}
-              </div>
-            </div>
-
-            {/* Entry / Cost Basis Card */}
-            <div className="p-3 rounded-xl bg-white dark:bg-[#1A1A1A] border border-purple-500/20 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-wider text-purple-700 dark:text-purple-400 flex items-center gap-1">
-                  <Crosshair className="w-3 h-3" />
-                  {numAvgPrice > 0 ? 'Your Cost Basis' : 'AI Ideal Entry'}
-                </span>
-                <span className="text-[8px] font-bold text-black/40 dark:text-white/40">Reference</span>
-              </div>
-              <div className="text-sm font-black font-mono text-black dark:text-white">
-                {formatCurrency(channelMetrics.effectiveEntry, currency)}
-              </div>
-              <div className={cn(
-                "text-[9px] font-bold",
-                channelMetrics.distFromEntry >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
-              )}>
-                {channelMetrics.effectiveEntry > 0 ? (
-                  `${channelMetrics.distFromEntry >= 0 ? '+' : ''}${formatCurrency(channelMetrics.distFromEntry, currency)} (${channelMetrics.distFromEntryPercent.toFixed(1)}% vs. current)`
-                ) : 'Not configured'}
-              </div>
-            </div>
-
-            {/* Resistance Card */}
-            <div className="p-3 rounded-xl bg-white dark:bg-[#1A1A1A] border border-indigo-500/20 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  Resistance Ceiling
-                </span>
-                <span className="text-[8px] font-bold text-black/40 dark:text-white/40">Upper Barrier</span>
-              </div>
-              <div className="text-sm font-black font-mono text-black dark:text-white">
-                {formatCurrency(resistance, currency)}
-              </div>
-              <div className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">
-                {channelMetrics.distToResistance >= 0 ? `${formatCurrency(channelMetrics.distToResistance, currency)} (${channelMetrics.distToResistancePercent.toFixed(1)}%) room to run` : `Breakout above ceiling (+${Math.abs(channelMetrics.distToResistance).toFixed(2)})`}
-              </div>
+              <p className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed">
+                {data.analysis?.trendExplanation 
+                  ? data.analysis.trendExplanation.replace(new RegExp(`${data.ticker}\\s+is\\s+trading\\s+at\\s+[A-Z0-9$€£.,\\s]+?,\\s*`, 'i'), `${data.ticker} is positioned `)
+                  : `5D MA reflects short-term momentum; 20D MA guides intermediate swing trend posture.`}
+              </p>
             </div>
           </div>
         </div>
       )}
 
       {/* ======================================================== */}
-      {/* ANCHORED VWAP (FROM ALL-TIME HIGH) TECHNICAL INTELLIGENCE */}
+      {/* SECTION 6: ANCHORED VWAP (ATH) BENCHMARK                 */}
       {/* ======================================================== */}
       {avwapAth && (
         <div className="p-4 md:p-5 rounded-2xl bg-cyan-500/[0.03] dark:bg-cyan-500/[0.05] border border-cyan-500/20 space-y-3">
@@ -909,7 +1030,7 @@ export default function StockPriceChart({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
             <div className="p-3 rounded-xl bg-white dark:bg-[#1A1A1A] border border-cyan-500/20 shadow-xs space-y-1">
               <span className="text-[9px] font-black uppercase tracking-wider text-cyan-700 dark:text-cyan-400 block">
-                ATH Benchmark
+                ATH Peak Benchmark
               </span>
               <div className="text-sm font-black font-mono text-black dark:text-white">
                 {formatCurrency(avwapAth.athPrice, currency)}
@@ -927,34 +1048,36 @@ export default function StockPriceChart({
                 {formatCurrency(avwapAth.avwapPrice, currency)}
               </div>
               <p className="text-[9px] text-black/40 dark:text-white/40">
-                Aggregate volume-weighted average price
+                Market aggregate volume-weighted average
               </p>
             </div>
 
             <div className="p-3 rounded-xl bg-white dark:bg-[#1A1A1A] border border-cyan-500/20 shadow-xs space-y-1">
               <span className="text-[9px] font-black uppercase tracking-wider text-cyan-700 dark:text-cyan-400 block">
-                Technical Role
+                Technical Market Role
               </span>
               <div className={cn(
                 "text-xs font-black",
                 avwapAth.status === 'above' ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
               )}>
-                {avwapAth.status === 'above' ? 'Dynamic Support Floor' : 'Supply / Overhead Resistance'}
+                {avwapAth.status === 'above' ? 'Dynamic Support Floor' : 'Dynamic Overhead Supply'}
               </div>
               <p className="text-[9px] text-black/50 dark:text-white/50 leading-relaxed">
                 {avwapAth.status === 'above'
-                  ? 'Bulls are in net profit since the ATH peak. Pullbacks to AVWAP tend to be actively defended.'
-                  : 'Bears and trapped peak buyers are underwater. Recoveries toward AVWAP often face supply.'}
+                  ? 'Aggregate volume since the ATH peak is in net profit. Pullbacks to AVWAP tend to act as strong institutional support.'
+                  : 'Aggregate volume since the ATH peak is underwater. Recoveries toward AVWAP often face distribution or breakeven selling.'}
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Chart Footer with Source, Timezone & Indicator Legend */}
+      {/* ======================================================== */}
+      {/* FOOTER: TIME, SOURCE, FEED TIMESTAMP                     */}
+      {/* ======================================================== */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[9px] font-bold text-black/40 dark:text-white/40 pt-3 border-t border-black/5 dark:border-white/5 gap-1.5">
         <div className="flex items-center gap-2">
-          <span>Feed: <strong className="text-black/70 dark:text-white/70">{data.priceSource || 'Yahoo Finance Live'}</strong></span>
+          <span>Data Feed: <strong className="text-black/70 dark:text-white/70">{data.priceSource || 'Yahoo Finance Live'}</strong></span>
           {data.exchange && <span>• Exchange: <strong className="text-black/70 dark:text-white/70">{data.exchange}</strong></span>}
         </div>
         <div className="flex items-center gap-2">
@@ -964,3 +1087,5 @@ export default function StockPriceChart({
     </div>
   );
 }
+
+export default React.memo(StockPriceChart);

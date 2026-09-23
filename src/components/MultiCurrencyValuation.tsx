@@ -125,7 +125,7 @@ export default function MultiCurrencyValuation({
   ];
 
   return (
-    <div className="bg-white dark:bg-[#141414] p-5 md:p-6 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-sm space-y-5">
+    <div className="bg-white dark:bg-[#121212] p-5 md:p-6 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs space-y-5">
       {/* Header with Title & Quick Refresh */}
       <div className="flex items-center justify-between pb-3 border-b border-black/5 dark:border-white/5">
         <div className="flex items-center gap-3">
@@ -214,12 +214,12 @@ export default function MultiCurrencyValuation({
                 )}
               </div>
 
-              <div className="text-xs md:text-sm font-black tracking-tight text-black dark:text-white truncate">
+              <div className="text-xs md:text-sm font-black tracking-tight text-black dark:text-white tabular-nums leading-snug break-words">
                 {loading ? '...' : formatCurrency(price, curr.code)}
               </div>
 
               {posVal !== null && (
-                <div className="mt-1 text-[9px] font-bold text-black/50 dark:text-white/50 truncate">
+                <div className="mt-1 text-[9px] font-bold text-black/50 dark:text-white/50 leading-snug break-words">
                   Total: {formatCurrency(posVal, curr.code)}
                 </div>
               )}
@@ -292,13 +292,13 @@ export default function MultiCurrencyValuation({
             >
               <div className="grid grid-cols-5 gap-2 items-center">
                 <div className="col-span-2">
-                  <input
-                    type="number"
-                    value={customAmount}
-                    onChange={(e) => setCustomAmount(e.target.value)}
-                    className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-2.5 py-2 text-xs font-bold outline-none focus:border-emerald-500"
-                    placeholder="Amount"
-                  />
+                    <input
+                      type="number"
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      className="w-full bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-2.5 py-2 text-xs font-bold outline-none focus:border-emerald-500 placeholder:text-black/35 dark:placeholder:text-white/35 placeholder:font-normal"
+                      placeholder="e.g. 1,000"
+                    />
                 </div>
 
                 <div className="col-span-1">
