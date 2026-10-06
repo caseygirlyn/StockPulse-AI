@@ -91,7 +91,10 @@ export const SignalAgreementModal: React.FC<SignalAgreementModalProps> = ({
                 <span>Definition: Multi-Factor Concordance Index</span>
               </div>
               <p className="text-[11px] leading-relaxed text-neutral-700 dark:text-neutral-300">
-                <strong>Signal Agreement (82/100) is NOT a win probability</strong> or statistical guarantee that the stock price will rise. It measures how many independent technical parameters (trend, moving averages, RSI, relative volume, support, and risk-reward geometry) currently point in the same direction without conflict.
+                <strong>Signal Agreement is NOT a win probability</strong> or statistical guarantee that the stock price will rise. It measures how many independent technical parameters (trend, moving averages, RSI, relative volume, support, and risk-reward geometry) currently point in the same direction without conflict.
+              </p>
+              <p className="text-[10.5px] leading-relaxed text-neutral-600 dark:text-neutral-400 border-t border-amber-500/20 pt-1.5 mt-1">
+                <strong>Payoff Ratio vs. Expected Value (EV):</strong> A favorable geometric Risk/Reward ratio (e.g. 1.71x) defines payoff if target is hit vs stop, but does not alone ensure positive expectancy. Expected value depends on trade probability; Signal Agreement provides the multi-factor confluence to evaluate trade quality.
               </p>
             </div>
 

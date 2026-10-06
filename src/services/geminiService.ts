@@ -247,7 +247,7 @@ export async function fetchJsonWithRetry<T>(
   url: string, 
   options: RequestInit = {}, 
   fallbackError: string,
-  retries: number = 3
+  retries: number = 4
 ): Promise<T> {
   const mergedOptions: RequestInit = {
     ...options,
@@ -260,7 +260,14 @@ export async function fetchJsonWithRetry<T>(
   let lastError: any = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, mergedOptions);
+      // Use 15s timeout per attempt so it never hangs indefinitely
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, {
+        ...mergedOptions,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
       return await safeJsonFetch<T>(res, fallbackError);
     } catch (err: any) {
       lastError = err;
@@ -271,13 +278,14 @@ export async function fetchJsonWithRetry<T>(
         msg.includes('temporarily unavailable') ||
         msg.includes('Failed to fetch') ||
         msg.includes('NetworkError') ||
+        msg.includes('aborted') ||
         msg.includes('502') ||
         msg.includes('503') ||
         msg.includes('504');
 
       if (attempt < retries && isTransient) {
-        // Exponential progressive backoff (e.g. 500ms, 1000ms, 1500ms, 2000ms)
-        const delay = Math.min(2500, 500 * (attempt + 1));
+        // Exponential progressive backoff (e.g. 600ms, 1200ms, 1800ms, 2400ms)
+        const delay = Math.min(2500, 600 * (attempt + 1));
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -285,8 +293,13 @@ export async function fetchJsonWithRetry<T>(
     }
   }
 
+  // If the error was explicitly from the backend API (JSON error response), throw that message directly
+  if (lastError && !lastError.message?.includes('warming up') && !lastError.message?.includes('non-JSON') && !lastError.message?.includes('502') && !lastError.message?.includes('503')) {
+    throw lastError;
+  }
+
   // Provide user-friendly final error if still failing after retries
-  if (lastError?.message?.includes('warming up') || lastError?.message?.includes('non-JSON')) {
+  if (lastError?.message?.includes('warming up') || lastError?.message?.includes('non-JSON') || lastError?.message?.includes('502') || lastError?.message?.includes('503') || lastError?.message?.includes('504')) {
     throw new Error('The live data server was temporarily reconnecting. Please click "Try Again" or refresh the page to load fresh market data.');
   }
 
@@ -386,6 +399,8 @@ export interface FxDataResponse {
   usdToGbp: FxRateDetail;
   eurToUsd: FxRateDetail;
   usdToEur: FxRateDetail;
+  chfToUsd?: FxRateDetail;
+  usdToChf?: FxRateDetail;
   lastUpdated: string;
 }
 

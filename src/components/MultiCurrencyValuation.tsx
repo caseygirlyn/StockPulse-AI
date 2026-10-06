@@ -34,8 +34,8 @@ export default function MultiCurrencyValuation({
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [showCustomConverter, setShowCustomConverter] = useState<boolean>(false);
   const [customAmount, setCustomAmount] = useState<string>('1000');
-  const [customFrom, setCustomFrom] = useState<'USD' | 'GBP' | 'EUR'>('USD');
-  const [customTo, setCustomTo] = useState<'USD' | 'GBP' | 'EUR'>('GBP');
+  const [customFrom, setCustomFrom] = useState<'USD' | 'GBP' | 'EUR' | 'CHF'>('USD');
+  const [customTo, setCustomTo] = useState<'USD' | 'GBP' | 'EUR' | 'CHF'>('GBP');
 
   const loadRates = async (mode: 'initial' | 'manual' | 'silent' = 'initial') => {
     if (mode === 'manual') setRefreshing(true);
@@ -47,7 +47,8 @@ export default function MultiCurrencyValuation({
         if (!prev) return data;
         if (
           prev.gbpToUsd.rate === data.gbpToUsd.rate &&
-          prev.eurToUsd.rate === data.eurToUsd.rate
+          prev.eurToUsd.rate === data.eurToUsd.rate &&
+          prev.chfToUsd?.rate === data.chfToUsd?.rate
         ) {
           return prev;
         }
@@ -67,34 +68,40 @@ export default function MultiCurrencyValuation({
     return () => clearInterval(interval);
   }, []);
 
-  // Compute pricing across USD, GBP, EUR based on active currency price
+  // Compute pricing across USD, GBP, EUR, CHF based on active currency price
   const convertedPrices = React.useMemo(() => {
-    if (!currentPrice) return { USD: 0, GBP: 0, EUR: 0 };
+    if (!currentPrice) return { USD: 0, GBP: 0, EUR: 0, CHF: 0 };
     if (!fxData) {
       return {
         USD: activeCurrency === 'USD' ? currentPrice : 0,
         GBP: activeCurrency === 'GBP' ? currentPrice : 0,
-        EUR: activeCurrency === 'EUR' ? currentPrice : 0
+        EUR: activeCurrency === 'EUR' ? currentPrice : 0,
+        CHF: activeCurrency === 'CHF' ? currentPrice : 0
       };
     }
 
-    const gbpUsd = fxData.gbpToUsd.rate; // 1 GBP in USD
-    const eurUsd = fxData.eurToUsd.rate; // 1 EUR in USD
+    const gbpUsd = fxData.gbpToUsd.rate || 1.33; // 1 GBP in USD
+    const eurUsd = fxData.eurToUsd.rate || 1.14; // 1 EUR in USD
+    const chfUsd = fxData.chfToUsd?.rate || 1.215; // 1 CHF in USD
 
     let priceInUSD = currentPrice;
     if (activeCurrency === 'GBP') {
       priceInUSD = currentPrice * gbpUsd;
     } else if (activeCurrency === 'EUR') {
       priceInUSD = currentPrice * eurUsd;
+    } else if (activeCurrency === 'CHF') {
+      priceInUSD = currentPrice * chfUsd;
     }
 
     const priceInGBP = priceInUSD / gbpUsd;
     const priceInEUR = priceInUSD / eurUsd;
+    const priceInCHF = priceInUSD / chfUsd;
 
     return {
       USD: Number(priceInUSD.toFixed(2)),
       GBP: Number(priceInGBP.toFixed(2)),
-      EUR: Number(priceInEUR.toFixed(2))
+      EUR: Number(priceInEUR.toFixed(2)),
+      CHF: Number(priceInCHF.toFixed(2))
     };
   }, [currentPrice, activeCurrency, fxData]);
 
@@ -104,16 +111,19 @@ export default function MultiCurrencyValuation({
     if (!fxData || amt <= 0) return '0.00';
     if (customFrom === customTo) return amt.toFixed(2);
 
-    const gbpUsd = fxData.gbpToUsd.rate;
-    const eurUsd = fxData.eurToUsd.rate;
+    const gbpUsd = fxData.gbpToUsd.rate || 1.33;
+    const eurUsd = fxData.eurToUsd.rate || 1.14;
+    const chfUsd = fxData.chfToUsd?.rate || 1.215;
 
     let inUSD = amt;
     if (customFrom === 'GBP') inUSD = amt * gbpUsd;
     if (customFrom === 'EUR') inUSD = amt * eurUsd;
+    if (customFrom === 'CHF') inUSD = amt * chfUsd;
 
     let result = inUSD;
     if (customTo === 'GBP') result = inUSD / gbpUsd;
     if (customTo === 'EUR') result = inUSD / eurUsd;
+    if (customTo === 'CHF') result = inUSD / chfUsd;
 
     return result.toFixed(2);
   }, [customAmount, customFrom, customTo, fxData]);
@@ -121,7 +131,8 @@ export default function MultiCurrencyValuation({
   const currencyOptions = [
     { code: 'USD', symbol: '$', name: 'US Dollar' },
     { code: 'GBP', symbol: '£', name: 'British Pound' },
-    { code: 'EUR', symbol: '€', name: 'Euro' }
+    { code: 'EUR', symbol: '€', name: 'Euro' },
+    { code: 'CHF', symbol: 'CHF', name: 'Swiss Franc' }
   ];
 
   return (
@@ -165,7 +176,7 @@ export default function MultiCurrencyValuation({
             1-Click Switch
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
+        <div className="grid grid-cols-4 gap-1.5 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
           {currencyOptions.map((c) => {
             const isActive = activeCurrency === c.code;
             return (
@@ -173,7 +184,7 @@ export default function MultiCurrencyValuation({
                 key={c.code}
                 onClick={() => onCurrencyChange(c.code)}
                 className={cn(
-                  "py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5",
+                  "py-1.5 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1",
                   isActive
                     ? "bg-white dark:bg-[#1C1C1C] text-black dark:text-white shadow-sm"
                     : "text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white"
@@ -187,8 +198,8 @@ export default function MultiCurrencyValuation({
         </div>
       </div>
 
-      {/* 3-Currency Live Valuation Cards */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* 4-Currency Live Valuation Cards (2 Columns for Single-Line Fit) */}
+      <div className="grid grid-cols-2 gap-2.5">
         {currencyOptions.map((curr) => {
           const price = convertedPrices[curr.code as keyof typeof convertedPrices];
           const isSelected = activeCurrency === curr.code;
@@ -205,21 +216,25 @@ export default function MultiCurrencyValuation({
                   : "bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5 hover:border-black/10 dark:hover:border-white/10"
               )}
             >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
-                  {curr.code}
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[9px] font-black uppercase tracking-wider text-black/45 dark:text-white/45 flex items-center gap-1">
+                  <span className="font-mono opacity-70">{curr.symbol}</span>
+                  <span>{curr.code}</span>
                 </span>
                 {isSelected && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 dark:text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Active
+                  </span>
                 )}
               </div>
 
-              <div className="text-xs md:text-sm font-black tracking-tight text-black dark:text-white tabular-nums leading-snug break-words">
+              <div className="text-sm md:text-base font-black tracking-tight text-black dark:text-white tabular-nums leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
                 {loading ? '...' : formatCurrency(price, curr.code)}
               </div>
 
               {posVal !== null && (
-                <div className="mt-1 text-[9px] font-bold text-black/50 dark:text-white/50 leading-snug break-words">
+                <div className="mt-1 text-[10px] font-bold text-black/50 dark:text-white/50 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
                   Total: {formatCurrency(posVal, curr.code)}
                 </div>
               )}
@@ -236,7 +251,7 @@ export default function MultiCurrencyValuation({
             <span className="font-mono text-[8px] opacity-60">Change</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <div className="p-2 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex items-center justify-between">
               <div>
                 <span className="text-[9px] font-black text-black/70 dark:text-white/70">GBP/USD</span>
@@ -264,6 +279,22 @@ export default function MultiCurrencyValuation({
                 {fxData.eurToUsd.changePercent.toFixed(2)}%
               </span>
             </div>
+
+            {fxData.chfToUsd ? (
+              <div className="p-2 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] font-black text-black/70 dark:text-white/70">CHF/USD</span>
+                  <p className="text-xs font-mono font-bold">{fxData.chfToUsd.rate.toFixed(4)}</p>
+                </div>
+                <span className={cn(
+                  "text-[9px] font-bold flex items-center gap-0.5",
+                  fxData.chfToUsd.change >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
+                )}>
+                  {fxData.chfToUsd.change >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                  {fxData.chfToUsd.changePercent.toFixed(2)}%
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -310,6 +341,7 @@ export default function MultiCurrencyValuation({
                     <option value="USD">USD</option>
                     <option value="GBP">GBP</option>
                     <option value="EUR">EUR</option>
+                    <option value="CHF">CHF</option>
                   </select>
                 </div>
 
@@ -335,6 +367,7 @@ export default function MultiCurrencyValuation({
                     <option value="USD">USD</option>
                     <option value="GBP">GBP</option>
                     <option value="EUR">EUR</option>
+                    <option value="CHF">CHF</option>
                   </select>
                 </div>
               </div>

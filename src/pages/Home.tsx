@@ -29,7 +29,8 @@ import {
   Layers,
   HelpCircle,
   Zap,
-  X
+  X,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO } from 'date-fns';
@@ -42,17 +43,25 @@ import {
   getLocalPortfolio, 
   type PortfolioPosition 
 } from '../services/portfolioService';
-import MultiCurrencyValuation from '../components/MultiCurrencyValuation';
 import StockPriceChart from '../components/StockPriceChart';
 import TickerLogo from '../components/TickerLogo';
 import { WhatShouldIDoBox } from '../components/WhatShouldIDoBox';
 import { WhyThisRecommendation } from '../components/WhyThisRecommendation';
 import { MarketReactionCard } from '../components/MarketReactionCard';
+import MarketHoursGuideModal from '../components/MarketHoursGuideModal';
 import { isExchangeMarketOpen } from '../utils/marketHours';
 import { getAuthoritativeCompanyName } from '../utils/tickerLogos';
-import { cn, formatCurrency } from '../utils';
+import { cn, formatCurrency, resolveNewsArticleUrl } from '../utils';
 import { useTheme } from '../context/ThemeContext';
 import { useRiskProfile, RiskProfile } from '../context/RiskContext';
+import { ProvenanceTag } from '../components/ProvenanceTag';
+import { 
+  getEpsEstimateProvenance, 
+  getValuationMetricProvenance, 
+  getModelGeometryProvenance, 
+  getSentimentProvenance,
+  formatProvenanceTimestamp
+} from '../utils/provenance';
 
 function formatDivDate(d?: string | number): string {
   if (!d) return '';
@@ -284,6 +293,7 @@ export default function Home() {
   const lastAnalyzedKeyRef = useRef<string>('');
 
   const [sentimentFilter, setSentimentFilter] = useState<'all' | 'bullish' | 'neutral' | 'bearish'>('all');
+  const [showTimingModal, setShowTimingModal] = useState(false);
 
   // Load saved portfolio positions
   useEffect(() => {
@@ -331,10 +341,16 @@ export default function Home() {
     const a = searchParams.get('avgPrice') || '';
     const s = searchParams.get('shares') || '';
     const c = searchParams.get('currency') || 'USD';
+    const guideParam = searchParams.get('guide') || searchParams.get('timing');
+
+    if (guideParam === 'timing' || guideParam === 'true' || window.location.hash === '#timing-guide') {
+      setShowTimingModal(true);
+    }
 
     if (t) {
-      const key = `${t.trim().toUpperCase()}-${a}-${s}-${c}`;
-      if (lastAnalyzedKeyRef.current === key) return;
+      const ts = searchParams.get('ts') || '';
+      const key = `${t.trim().toUpperCase()}-${a}-${s}-${c}-${ts}`;
+      if (lastAnalyzedKeyRef.current === key && data && !error) return;
       lastAnalyzedKeyRef.current = key;
 
       setTicker(t);
@@ -417,6 +433,7 @@ export default function Home() {
         });
       }
     } catch (err) {
+      lastAnalyzedKeyRef.current = '';
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
       clearInterval(interval);
@@ -632,8 +649,28 @@ export default function Home() {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 mb-2 shadow-sm">
                   <BarChart3 className="w-6 h-6" />
                 </div>
-                <h2 className="text-2xl md:text-4xl font-black tracking-tight mb-2 leading-tight">Professional Grade <br/>Stock Intelligence</h2>
-                <p className="text-black/60 dark:text-white/60 text-base md:text-lg max-w-lg mx-auto">Connect your portfolio data to get institutional-level technical analysis and real-time news sentiment.</p>
+                <h2 className="text-2xl md:text-4xl font-black tracking-tight mb-2 leading-tight">
+                  Actionable Stock Analysis <br className="hidden sm:inline" />& Trade Signals
+                </h2>
+                <p className="text-black/60 dark:text-white/60 text-base md:text-lg max-w-lg mx-auto leading-relaxed">
+                  Clear Buy, Hold & Sell signals with price targets, risk management, and live catalyst sentiment for US, UK, and European equities.
+                </p>
+                
+                {/* Market Hours & Benchmark Rates Guide Pill (Single Primary Trigger) */}
+                <div className="mt-3.5 flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowTimingModal(true)}
+                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white dark:bg-[#161616] border border-black/10 dark:border-white/10 hover:border-emerald-500/50 hover:bg-emerald-500/5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 shadow-xs hover:shadow-md transition-all cursor-pointer group"
+                    title="Optimal trading windows, live exchange status, benchmark FX rates, and execution timing for US (NYSE/NASDAQ), UK (LSE), and European equities (EUR/CHF)"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:rotate-12 transition-transform" />
+                    <span className="font-bold">Market Hours & Benchmark Rates Guide</span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider font-mono">
+                      US · UK · Europe · FX
+                    </span>
+                  </button>
+                </div>
               </div>
               
               <div className="flex justify-center">
@@ -654,14 +691,30 @@ export default function Home() {
                           </span>
                         )}
                       </div>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. NVDA, AAPL, CSPX.L" 
-                        className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 rounded-xl px-4 md:px-5 outline-none focus:border-emerald-500 transition-all font-bold uppercase text-sm placeholder:normal-case placeholder:font-normal placeholder:text-black/35 dark:placeholder:text-white/35"
-                        value={ticker}
-                        onChange={(e) => handleTickerChange(e.target.value)}
-                        required
-                      />
+
+                      <div className="relative flex items-center">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. NVDA, CSPX.L, NESN.SW" 
+                          className="w-full h-11 md:h-12 bg-[#F5F5F5] dark:bg-[#0A0A0A] border border-black/5 dark:border-white/5 focus:border-emerald-500 rounded-xl pl-4 pr-10 md:pl-5 outline-none transition-all font-bold uppercase text-sm placeholder:normal-case placeholder:font-normal placeholder:text-black/35 dark:placeholder:text-white/35"
+                          value={ticker}
+                          onChange={(e) => handleTickerChange(e.target.value)}
+                          required
+                        />
+
+                        {ticker && (
+                          <button
+                            type="button"
+                            onClick={() => setTicker('')}
+                            className="absolute right-3 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                            title="Clear ticker"
+                            aria-label="Clear ticker input"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
                       {ticker.trim() && getAuthoritativeCompanyName(ticker.trim()) !== ticker.trim().toUpperCase() && (
                         <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 ml-1 leading-snug break-words">
                           {getAuthoritativeCompanyName(ticker.trim())}
@@ -716,16 +769,31 @@ export default function Home() {
                         <option value="USD">USD ($)</option>
                         <option value="GBP">GBP (£)</option>
                         <option value="EUR">EUR (€)</option>
+                        <option value="CHF">CHF (Fr)</option>
                       </select>
                     </div>
                   </div>
                   <button 
                     type="submit" 
                     disabled={loading}
-                    className="w-full bg-black dark:bg-white text-white dark:text-black font-black py-3.5 md:py-4 rounded-xl hover:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl transition-all flex items-center justify-center gap-3 text-sm md:text-base cursor-pointer"
+                    className="w-full bg-black dark:bg-white text-white dark:text-black font-black py-3.5 md:py-4 rounded-xl hover:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl transition-all flex items-center justify-center gap-2.5 text-sm md:text-base cursor-pointer"
                   >
-                    {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Generate Report'}
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Running Deep Analysis...</span>
+                      </>
+                    ) : (
+                      'Deep Analysis'
+                    )}
                   </button>
+
+                  <div className="pt-2.5 border-t border-neutral-100 dark:border-neutral-800/80">
+                    <p className="text-[10px] sm:text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500 text-center font-normal">
+                      <span className="font-semibold text-neutral-500 dark:text-neutral-400">Disclaimer: </span>
+                      Algorithmic signals, ratings, and price targets generated by StockPulse AI are intended for research, informational, and educational purposes only. The platform does not provide personalized investment advice or portfolio management. Always conduct your own due diligence and consult a certified financial advisor before making investment decisions.
+                    </p>
+                  </div>
                 </form>
               </div>
             </motion.div>
@@ -852,43 +920,6 @@ export default function Home() {
                 <span>Reset to Search</span>
               </button>
             </div>
-
-            <div className="pt-3 border-t border-red-200/60 dark:border-red-500/20 flex flex-col gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-red-900/60 dark:text-red-400/60">
-                Or try a popular verified ticker:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { symbol: 'GPRO', label: 'GPRO (GoPro)' },
-                  { symbol: 'AAPL', label: 'AAPL' },
-                  { symbol: 'NVDA', label: 'NVDA' },
-                  { symbol: 'TSLA', label: 'TSLA' },
-                  { symbol: 'MSFT', label: 'MSFT' },
-                  { symbol: 'SPY', label: 'SPY' },
-                  { symbol: 'SSLN.L', label: 'SSLN.L' }
-                ].map(s => (
-                  <button
-                    key={s.symbol}
-                    type="button"
-                    onClick={() => {
-                      const targetAvg = avgPrice && parseFloat(avgPrice) > 0 ? avgPrice : '';
-                      setTicker(s.symbol);
-                      setError(null);
-                      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-                      handleSubmit(fakeEvent, {
-                        ticker: s.symbol,
-                        avgPrice: targetAvg,
-                        shares: shares || '',
-                        currency
-                      });
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-black/30 border border-red-200 dark:border-red-500/30 text-[11px] font-bold text-red-900 dark:text-red-200 hover:bg-red-100/50 dark:hover:bg-red-500/20 transition-all cursor-pointer font-mono"
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </motion.div>
         )}
 
@@ -900,91 +931,119 @@ export default function Home() {
               animate="show"
               className="space-y-6 w-full"
             >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-4">
-                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                  <TickerLogo ticker={data.ticker} logoUrl={data.logoUrl} companyName={data.companyName} size="md" />
-                  <div className="flex flex-col justify-center min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-                      <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-neutral-900 dark:text-neutral-50 leading-none">
-                        {data.ticker}
-                      </h2>
-                      <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums leading-none">
-                        {formatCurrency(data.currentPrice, currency)}
-                      </span>
-                      <span className={cn(
-                        "inline-flex items-center gap-0.5 text-xs font-bold font-mono px-2 py-0.5 rounded-lg shrink-0",
-                        (data.priceChangePercent ?? 0) >= 0 
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" 
-                          : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
-                      )}>
-                        {(data.priceChangePercent ?? 0) >= 0 ? '+' : ''}{(data.priceChangePercent ?? 0).toFixed(2)}% today
-                      </span>
-                      <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-500/20 shrink-0">
-                        <div className={cn(
-                          "w-1.5 h-1.5 rounded-full shrink-0",
-                          isUpdating ? "bg-emerald-400 animate-ping" : "bg-emerald-500"
-                        )} />
-                        <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider whitespace-nowrap">
-                          <span className="md:hidden">{formatExchangeShortCode(data.exchange)} Live</span>
-                          <span className="hidden md:inline">{data.exchange ? `${data.exchange} Live` : 'Live'}</span>
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between mb-2 gap-4">
+                {/* Left Side: Asset Identity & Price Telemetry Blocks */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 min-w-0">
+                  {/* Block 1: Asset Identity (Logo, Ticker, Exchange & Company Name) */}
+                  <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+                    <TickerLogo ticker={data.ticker} logoUrl={data.logoUrl} companyName={data.companyName} size="md" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-neutral-900 dark:text-neutral-50 leading-none">
+                          {data.ticker}
+                        </h2>
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-neutral-200/70 dark:border-neutral-700/70 shrink-0">
+                          {data.exchange || 'NASDAQ'}
                         </span>
-                        <span className="text-[10px] font-mono font-bold text-emerald-600/70 dark:text-emerald-400/70 whitespace-nowrap">
-                          {format(lastUpdated, 'HH:mm:ss')}
-                        </span>
-                        <button 
-                          onClick={() => handleUpdatePrice(true)}
-                          disabled={isUpdating}
-                          className="p-0.5 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded-full transition-colors group ml-0.5 cursor-pointer shrink-0"
-                          title="Refresh Canonical Price"
-                        >
-                          <RefreshCw className={cn("w-2.5 h-2.5 text-emerald-600/50 dark:text-emerald-500/50 group-hover:text-emerald-600 dark:group-hover:text-emerald-500", isUpdating && "animate-spin")} />
-                        </button>
                       </div>
+                      <p className="text-xs sm:text-sm font-medium text-neutral-500 dark:text-neutral-400 mt-1 leading-snug">
+                        {data.name || data.companyName || getAuthoritativeCompanyName(data.ticker)}
+                      </p>
                     </div>
-                    <span className="text-xs sm:text-sm font-semibold text-black/60 dark:text-white/60 tracking-tight mt-1 leading-snug break-words">
-                      {data.name || data.companyName || getAuthoritativeCompanyName(data.ticker)}
-                    </span>
                   </div>
-                </div>
-                  <div className="relative flex items-center gap-2 md:gap-3">
-                    <AnimatePresence>
-                      {justSavedNotification && (
-                        <motion.div
-                          initial={{ opacity: 0, x: 8 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: 8 }}
-                          className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-emerald-200/80 dark:border-emerald-500/20 shadow-xs shrink-0"
-                        >
-                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Stored in Portfolio</span>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
 
-                    <Link
-                      to="/portfolio"
-                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 md:px-3 md:py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm flex items-center gap-1.5"
-                      title="View all saved positions"
-                    >
-                      <PieChart className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
-                      <span className="hidden sm:inline text-[10px]">Portfolio</span>
-                    </Link>
-                    <button 
-                      onClick={() => handleUpdatePrice(true)}
-                      disabled={isUpdating}
-                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-                      title="Refresh Canonical Price"
-                    >
-                      <RefreshCw className={cn("w-4 h-4 text-emerald-600 dark:text-emerald-500", isUpdating && "animate-spin")} />
-                      <span className="hidden sm:inline text-[10px]">Refresh</span>
-                    </button>
-                    <button 
-                      onClick={() => setData(null)}
-                      className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 px-3 md:px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm cursor-pointer"
-                    >
-                      New
-                    </button>
-                  </div>
+                  {/* Visual Divider (Visible on screens with horizontal room) */}
+                  <div className="hidden sm:block w-px h-9 bg-neutral-200/80 dark:bg-neutral-800 shrink-0" />
+
+                  {/* Block 2: Live Price & Authoritative Session Status */}
+                  {(() => {
+                    const isMarketOpen = isExchangeMarketOpen(data.ticker, data.exchange, data.exchangeTimezone);
+                    const marketTimestamp = formatProvenanceTimestamp(data.marketTimestamp || lastUpdated, data.exchangeTimezone);
+                    const isPositive = (data.priceChangePercent ?? 0) >= 0;
+                    const changeAmount = data.priceChange ?? (data.priceChangePercent ? (data.currentPrice * data.priceChangePercent) / 100 : 0);
+
+                    return (
+                      <div className="flex flex-col min-w-0 justify-center">
+                        <div className="flex items-baseline gap-2 sm:gap-2.5 flex-wrap">
+                          <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums leading-none">
+                            {formatCurrency(data.currentPrice, currency)}
+                          </span>
+                          <span className={cn(
+                            "inline-flex items-center gap-1 text-xs font-bold font-mono px-2 py-0.5 rounded-md tabular-nums shrink-0",
+                            isPositive 
+                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-500/20" 
+                              : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-500/20"
+                          )}>
+                            {isPositive ? <ArrowUpRight className="w-3.5 h-3.5 shrink-0" /> : <ArrowDownRight className="w-3.5 h-3.5 shrink-0" />}
+                            <span>{isPositive ? '+' : ''}{(data.priceChangePercent ?? 0).toFixed(2)}%</span>
+                            {changeAmount !== 0 && (
+                              <span className="text-[10px] opacity-80 hidden xs:inline">
+                                ({isPositive ? '+' : ''}{formatCurrency(Math.abs(changeAmount), currency)})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Authoritative Single Market Status Strip */}
+                        <div className="text-[10.5px] font-mono text-neutral-500 dark:text-neutral-400 mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            isMarketOpen ? "bg-emerald-500 animate-pulse" : "bg-neutral-400 dark:bg-neutral-500"
+                          )} />
+                          <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+                            {isMarketOpen ? 'Market Open' : 'Market Closed'}
+                          </span>
+                          <span>·</span>
+                          <span>
+                            {(() => {
+                              const t = (data.ticker || '').toUpperCase();
+                              const ex = (data.exchange || '').toLowerCase();
+                              const isDelayed = t.endsWith('.L') || ex.includes('london') || ex.includes('lse') || ex.includes('euronext') || ex.includes('xetra');
+                              if (isMarketOpen) {
+                                return isDelayed ? `15m Delayed: ${marketTimestamp}` : `Real-time: ${marketTimestamp}`;
+                              }
+                              return `At close: ${marketTimestamp}`;
+                            })()}
+                          </span>
+                          <span>·</span>
+                          <span>{currency || 'USD'}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="relative flex items-center gap-2 md:gap-3">
+                  <AnimatePresence>
+                    {justSavedNotification && (
+                      <motion.div
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 8 }}
+                        className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-emerald-200/80 dark:border-emerald-500/20 shadow-xs shrink-0"
+                      >
+                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Stored in Portfolio</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <button 
+                    onClick={() => handleUpdatePrice(true)}
+                    disabled={isUpdating}
+                    className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 p-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                    title={`Refresh price (Last checked at ${format(lastUpdated, 'HH:mm:ss')})`}
+                  >
+                    <RefreshCw className={cn("w-4 h-4 text-emerald-600 dark:text-emerald-500", isUpdating && "animate-spin")} />
+                    <span className="hidden sm:inline text-[10px]">Refresh</span>
+                  </button>
+                  <button 
+                    onClick={() => setData(null)}
+                    className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 px-3 md:px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm cursor-pointer"
+                  >
+                    New
+                  </button>
+                </div>
               </div>
 
               {/* Full-Width Trade Decision Hub */}
@@ -1001,120 +1060,167 @@ export default function Home() {
                 />
               </motion.div>
 
+              {/* Epistemic Status & Provenance Directory Legend Strip (Positioned Below Trade Decision) */}
+              <motion.div variants={itemVariants} className="w-full">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-neutral-100/70 dark:bg-neutral-900/60 border border-neutral-200/80 dark:border-neutral-800 text-[10.5px] font-mono">
+                  <span className="font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider text-[9px] shrink-0">
+                    Data Epistemology:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-neutral-600 dark:text-neutral-400">
+                    <span className="inline-flex items-center gap-1.5" title="Exchange-cleared trades, quotes, and moving averages from live feed">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <strong className="text-neutral-800 dark:text-neutral-200 font-semibold">Market:</strong> NASDAQ / NYSE Live
+                    </span>
+                    <span className="inline-flex items-center gap-1.5" title="Pre-market and after-hours electronic trading crossing networks">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+                      <strong className="text-neutral-800 dark:text-neutral-200 font-semibold">Extended:</strong> ECN Electronic
+                    </span>
+                    <span className="inline-flex items-center gap-1.5" title="Surveyed Wall Street sell-side analyst consensus projections">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <strong className="text-neutral-800 dark:text-neutral-200 font-semibold">Analyst:</strong> Consensus Surveys
+                    </span>
+                    <span className="inline-flex items-center gap-1.5" title="Deterministic ATR volatility envelopes and trade geometry algorithms">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+                      <strong className="text-neutral-800 dark:text-neutral-200 font-semibold">Model:</strong> Algorithmic Levels
+                    </span>
+                    <span className="inline-flex items-center gap-1.5" title="Audited SEC 10-Q/10-K reported corporate accounting filings">
+                      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 shrink-0" />
+                      <strong className="text-neutral-800 dark:text-neutral-200 font-semibold">Financials:</strong> GAAP Filings
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Full-Width Price Performance & Structural Analysis */}
+              <motion.div variants={itemVariants} className="w-full">
+                <StockPriceChart 
+                  data={data}
+                  chartData={chartData}
+                  avgPrice={avgPrice}
+                  currency={currency}
+                  lastUpdated={lastUpdated}
+                />
+              </motion.div>
+
               {/* Main Content Grid with Sidebar Up */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                  {/* Merged & Streamlined Summary Cards */}
-                  <div className={cn(
-                    "grid gap-4",
-                    portfolioStats ? "grid-cols-1 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"
-                  )}>
-                    {/* Card 1: Trend & Key Levels */}
-                    <motion.div 
-                      variants={itemVariants}
-                      className="bg-white dark:bg-[#121212] p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-2 mb-3">
-                          <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
-                            Trend & Key Levels
-                          </span>
-                          <div 
-                            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-[11px] font-medium shrink-0 whitespace-nowrap"
-                            title={data.exchange ? `${data.exchange} Data Feed` : 'Canonical Exchange Feed'}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                            <span>{formatExchangeShortCode(data.exchange)}</span>
-                          </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="lg:col-span-2 space-y-3.5 sm:space-y-4">
+                  {/* Card 1: Trend & Key Levels - Full Width of Main Column (same width as Market Reaction) */}
+                  <motion.div 
+                    variants={itemVariants}
+                    className="w-full bg-white dark:bg-[#121212] p-4 sm:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                          Trend & Key Levels
+                        </span>
+                        <div 
+                          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-[11px] font-medium shrink-0 whitespace-nowrap"
+                          title={data.exchange ? `${data.exchange} Data Feed` : 'Canonical Exchange Feed'}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span>{formatExchangeShortCode(data.exchange)}</span>
                         </div>
+                      </div>
 
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
-                              {data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0) ? (
-                                <>
-                                  <TrendingUp className="w-5 h-5 text-emerald-500 shrink-0" />
-                                  <span>Bullish Alignment</span>
-                                </>
-                              ) : data.currentPrice >= data.ma5 ? (
-                                <>
-                                  <ArrowUpRight className="w-5 h-5 text-blue-500 shrink-0" />
-                                  <span>Short-Term Momentum</span>
-                                </>
-                              ) : data.ma20 && data.currentPrice >= data.ma20 ? (
-                                <>
-                                  <Activity className="w-5 h-5 text-amber-500 shrink-0" />
-                                  <span>Baseline Support</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ArrowDownRight className="w-5 h-5 text-neutral-500 shrink-0" />
-                                  <span>Pullback Phase</span>
-                                </>
-                              )}
-                            </h3>
-                          </div>
-
-                          <div className="flex items-center gap-2 mt-1.5 min-w-0 text-xs text-neutral-500 dark:text-neutral-400">
-                            <span>
-                              Volatility: <strong className="font-semibold text-neutral-800 dark:text-neutral-200 capitalize">{data.analysis.volatility || 'Moderate'}</strong>
-                            </span>
-                            {data.relativeVolume ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg sm:text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 flex items-center gap-1.5">
+                            {data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0) ? (
                               <>
-                                <span>·</span>
-                                <span>
-                                  Rel Vol: <strong className="font-semibold font-mono text-neutral-800 dark:text-neutral-200">{data.relativeVolume.toFixed(1)}x</strong>
-                                </span>
+                                <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
+                                <span>Bullish Alignment</span>
                               </>
-                            ) : null}
+                            ) : data.currentPrice >= data.ma5 ? (
+                              <>
+                                <ArrowUpRight className="w-4 h-4 text-blue-500 shrink-0" />
+                                <span>Short-Term Momentum</span>
+                              </>
+                            ) : data.ma20 && data.currentPrice >= data.ma20 ? (
+                              <>
+                                <Activity className="w-4 h-4 text-amber-500 shrink-0" />
+                                <span>Baseline Support</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowDownRight className="w-4 h-4 text-neutral-500 shrink-0" />
+                                <span>Pullback Phase</span>
+                              </>
+                            )}
+                          </h3>
+                        </div>
+
+                        <div className="flex items-center gap-2 min-w-0 text-xs text-neutral-500 dark:text-neutral-400">
+                          <span>
+                            Volatility: <strong className="font-semibold text-neutral-800 dark:text-neutral-200 capitalize">{data.analysis.volatility || 'Moderate'}</strong>
+                          </span>
+                          {data.relativeVolume ? (
+                            <>
+                              <span>·</span>
+                              <span>
+                                Rel Vol: <strong className="font-semibold font-mono text-neutral-800 dark:text-neutral-200">{data.relativeVolume.toFixed(1)}x</strong>
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {/* Technical Architecture: 5D MA, 20D MA, and 30D Range in a 3-Column Strip */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mt-3 pt-2.5 border-t border-neutral-100 dark:border-neutral-800/80">
+                        {/* 5D Momentum MA */}
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5">
+                            5D Momentum MA
+                          </p>
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums font-mono">
+                              {formatCurrency(data.ma5, currency)}
+                            </p>
+                            <span className={cn(
+                              "text-[10px] font-bold font-mono",
+                              data.currentPrice >= data.ma5 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                            )}>
+                              {data.currentPrice >= data.ma5 ? '+' : ''}
+                              {(((data.currentPrice - data.ma5) / data.ma5) * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span>Market · 5D Moving Avg</span>
                           </div>
                         </div>
 
-                        {/* Moving Average Hierarchy */}
-                        <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800/80">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5">
-                              5D Momentum MA
+                        {/* 20D Baseline MA */}
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5">
+                            20D Baseline MA
+                          </p>
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums font-mono">
+                              {data.ma20 ? formatCurrency(data.ma20, currency) : 'N/A'}
                             </p>
-                            <div className="flex items-baseline gap-1.5 flex-wrap">
-                              <p className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums font-mono">
-                                {formatCurrency(data.ma5, currency)}
-                              </p>
+                            {data.ma20 && (
                               <span className={cn(
                                 "text-[10px] font-bold font-mono",
-                                data.currentPrice >= data.ma5 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                                data.currentPrice >= data.ma20 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
                               )}>
-                                {data.currentPrice >= data.ma5 ? '+' : ''}
-                                {(((data.currentPrice - data.ma5) / data.ma5) * 100).toFixed(1)}%
+                                {data.currentPrice >= data.ma20 ? '+' : ''}
+                                {(((data.currentPrice - data.ma20) / data.ma20) * 100).toFixed(1)}%
                               </span>
-                            </div>
+                            )}
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5">
-                              20D Baseline MA
-                            </p>
-                            <div className="flex items-baseline gap-1.5 flex-wrap">
-                              <p className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums font-mono">
-                                {data.ma20 ? formatCurrency(data.ma20, currency) : 'N/A'}
-                              </p>
-                              {data.ma20 && (
-                                <span className={cn(
-                                  "text-[10px] font-bold font-mono",
-                                  data.currentPrice >= data.ma20 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                                )}>
-                                  {data.currentPrice >= data.ma20 ? '+' : ''}
-                                  {(((data.currentPrice - data.ma20) / data.ma20) * 100).toFixed(1)}%
-                                </span>
-                              )}
-                            </div>
+                          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span>Market · 20D Moving Avg</span>
                           </div>
                         </div>
 
                         {/* 30D Price Range Track */}
-                        <div className="mt-3.5 pt-3 border-t border-neutral-100 dark:border-neutral-800/80 space-y-1.5">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="text-neutral-500 dark:text-neutral-400 font-medium flex items-center gap-1">
-                              <Crosshair className="w-3 h-3 text-neutral-400" />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-neutral-400 dark:text-neutral-500 font-semibold uppercase tracking-wider flex items-center gap-1">
+                              <Crosshair className="w-2.5 h-2.5 text-neutral-400" />
                               30D Range
                             </span>
                             <span className="font-mono font-bold text-neutral-800 dark:text-neutral-200">
@@ -1131,50 +1237,61 @@ export default function Home() {
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
-                            <span>Low: {formatCurrency(range30dStats.low30d, currency)}</span>
-                            <span>High: {formatCurrency(range30dStats.high30d, currency)}</span>
+                          <div className="flex items-center justify-between text-[9px] font-mono text-neutral-500 dark:text-neutral-400">
+                            <span>L: {formatCurrency(range30dStats.low30d, currency)}</span>
+                            <span>H: {formatCurrency(range30dStats.high30d, currency)}</span>
+                          </div>
+                          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span>Market · 30D High/Low</span>
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Moving Average Alignment Footer */}
-                      <div className="pt-3 mt-3 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
-                        <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                          Structure
+                    {/* Moving Average Alignment Footer */}
+                    <div className="pt-2 mt-2.5 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
+                      <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium">
+                        Structure
+                      </span>
+                      <span className="text-[10px] font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0",
+                          data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0)
+                            ? "bg-emerald-500"
+                            : data.currentPrice >= data.ma5
+                            ? "bg-blue-500"
+                            : data.ma20 && data.currentPrice >= data.ma20
+                            ? "bg-amber-500"
+                            : "bg-neutral-400"
+                        )} />
+                        <span>
+                          {data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0)
+                            ? 'Trading above 5D & 20D MAs'
+                            : data.currentPrice >= data.ma5
+                            ? 'Leading above 5D Momentum'
+                            : data.ma20 && data.currentPrice >= data.ma20
+                            ? 'Holding above 20D Baseline'
+                            : 'Trading below key MAs'}
                         </span>
-                        <span className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
-                          <span className={cn(
-                            "w-1.5 h-1.5 rounded-full shrink-0",
-                            data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0)
-                              ? "bg-emerald-500"
-                              : data.currentPrice >= data.ma5
-                              ? "bg-blue-500"
-                              : data.ma20 && data.currentPrice >= data.ma20
-                              ? "bg-amber-500"
-                              : "bg-neutral-400"
-                          )} />
-                          <span>
-                            {data.currentPrice >= data.ma5 && data.currentPrice >= (data.ma20 || 0)
-                              ? 'Trading above 5D & 20D MAs'
-                              : data.currentPrice >= data.ma5
-                              ? 'Leading above 5D Momentum'
-                              : data.ma20 && data.currentPrice >= data.ma20
-                              ? 'Holding above 20D Baseline'
-                              : 'Trading below key MAs'}
-                          </span>
-                        </span>
-                      </div>
-                    </motion.div>
+                      </span>
+                    </div>
+                  </motion.div>
+
+                  {/* Position Value and Valuation Profile (Below Trend & Key Levels) */}
+                  <div className={cn(
+                    "grid gap-3 sm:gap-3.5",
+                    portfolioStats ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"
+                  )}>
 
                     {/* Card 2: Total Holding Value & Position Return (Integrated) */}
                     {portfolioStats && (
                       <motion.div 
                         variants={itemVariants}
-                        className="bg-white dark:bg-[#121212] p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
+                        className="bg-white dark:bg-[#121212] p-4 sm:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
                       >
                         <div>
-                          <div className="flex items-center justify-between gap-2 mb-3">
+                          <div className="flex items-center justify-between gap-2 mb-2">
                             <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
                               Position Value
                             </span>
@@ -1189,11 +1306,11 @@ export default function Home() {
                           </div>
 
                           <div>
-                            <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums">
+                            <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums">
                               {formatCurrency(portfolioStats.marketValue, currency)}
                             </h3>
                             
-                            <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                            <div className="flex items-center gap-2 mt-1 min-w-0">
                               <span className={cn(
                                 "inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums whitespace-nowrap",
                                 portfolioStats.profit >= 0 
@@ -1204,38 +1321,51 @@ export default function Home() {
                                 <span>{portfolioStats.profit >= 0 ? '+' : ''}{formatCurrency(portfolioStats.profit, currency)}</span>
                                 <span className="font-medium opacity-90">({(portfolioStats.percentReturn ?? 0) >= 0 ? '+' : ''}{(portfolioStats.percentReturn ?? 0).toFixed(2)}%)</span>
                               </span>
-                              <span className="text-[11px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap">Return</span>
+                              <span className="text-[10px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap">Return</span>
+                            </div>
+
+                            <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              <span>Market · Float × Last Price</span>
                             </div>
                           </div>
 
                           {/* Secondary Metrics: Cost Basis & Avg Purchase */}
-                          <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800/80">
+                          <div className="grid grid-cols-2 gap-2.5 mt-2.5 pt-2.5 border-t border-neutral-100 dark:border-neutral-800/80">
                             <div className="min-w-0">
-                              <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5 whitespace-nowrap">
+                              <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">
                                 Cost Basis
                               </p>
-                              <p className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+                              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
                                 {formatCurrency(portfolioStats.totalCost ?? portfolioStats.costBasis, currency)}
+                              </p>
+                              <p className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 mt-0.5">
+                                User · Ledger Input
                               </p>
                             </div>
                             <div className="min-w-0">
-                              <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5 whitespace-nowrap">
+                              <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">
                                 Avg Buy
                               </p>
-                              <p className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+                              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
                                 {formatCurrency(parseFloat(avgPrice), currency)}
+                              </p>
+                              <p className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 mt-0.5">
+                                User · Ledger Input
                               </p>
                             </div>
                           </div>
                         </div>
 
                         {/* Integrated Position Metadata Strip */}
-                        <div className="pt-3 mt-3 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
-                          <span className="text-[11px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap">
-                            Unrealized P/L
-                          </span>
+                        <div className="pt-2 mt-2.5 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="text-[10px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap block">
+                              Unrealized P/L
+                            </span>
+                          </div>
                           <span className={cn(
-                            "text-[11px] font-semibold tabular-nums whitespace-nowrap",
+                            "text-[11px] font-semibold tabular-nums whitespace-nowrap font-mono",
                             portfolioStats.profit >= 0 
                               ? "text-emerald-600 dark:text-emerald-400" 
                               : "text-rose-600 dark:text-rose-400"
@@ -1249,16 +1379,16 @@ export default function Home() {
                     {/* Card 3: Unified Valuation & Fundamentals */}
                     <motion.div 
                       variants={itemVariants}
-                      className="bg-white dark:bg-[#121212] p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
+                      className="bg-white dark:bg-[#121212] p-4 sm:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
                     >
                       <div>
-                        <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
                           <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
                             Valuation & Profile
                           </span>
                           {data.avwapAth && (
                             <span className={cn(
-                              "text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 tabular-nums whitespace-nowrap",
+                              "text-[10px] font-medium px-2 py-0.5 rounded-md shrink-0 tabular-nums whitespace-nowrap",
                               data.avwapAth.status === 'above' 
                                 ? "bg-neutral-100 dark:bg-neutral-800 text-emerald-600 dark:text-emerald-400" 
                                 : "bg-neutral-100 dark:bg-neutral-800 text-rose-600 dark:text-rose-400"
@@ -1268,37 +1398,65 @@ export default function Home() {
                           )}
                         </div>
 
-                        {/* Primary Metric: Market Cap */}
-                        <div>
-                          <p className="text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums">
-                            {data.marketCap || 'N/A'}
-                          </p>
-                          <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1 whitespace-nowrap">
-                            Market Capitalization
-                          </p>
-                        </div>
-
-                        {/* Next Line: P/E Ratio & Div Yield */}
-                        <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800/80">
+                        {/* Primary Metrics: Market Cap & P/E Ratio Side-by-Side */}
+                        <div className="grid grid-cols-2 gap-2.5">
                           <div className="min-w-0">
-                            <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5 whitespace-nowrap">
-                              P/E Ratio
+                            <p className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums">
+                              {data.marketCap || 'N/A'}
                             </p>
-                            <p className="text-sm sm:text-base font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+                            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 whitespace-nowrap">
+                              Market Cap
+                            </p>
+                            <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              <span>Market · Float × Last Price</span>
+                            </div>
+                          </div>
+
+                          <div className="min-w-0">
+                            <p className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 tabular-nums">
                               {data.peRatio ? `${data.peRatio.toFixed(2)}x` : 'N/A'}
                             </p>
-                            {data.epsFormatted && (
-                              <p className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 mt-0.5 tabular-nums whitespace-nowrap">
-                                EPS: {data.epsFormatted}
-                              </p>
-                            )}
+                            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 whitespace-nowrap">
+                              P/E Ratio
+                            </p>
+                            <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 shrink-0" />
+                              <span>Reported GAAP · TTM</span>
+                            </div>
                           </div>
+                        </div>
+
+                        {/* Secondary Metrics: EPS & Div Yield */}
+                        <div className="grid grid-cols-2 gap-2.5 mt-2.5 pt-2.5 border-t border-neutral-100 dark:border-neutral-800/80">
+                          {/* EPS */}
                           <div className="min-w-0">
-                            <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 mb-0.5 whitespace-nowrap">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">
+                                EPS (TTM)
+                              </p>
+                              {data.epsFormatted && (
+                                <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-mono">
+                                  EST
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
+                              {data.epsFormatted ? data.epsFormatted : (data.eps !== undefined ? formatCurrency(data.eps, currency) : 'N/A')}
+                            </p>
+                            <div className="text-[8.5px] font-mono text-amber-700/80 dark:text-amber-400/80 flex items-center gap-1 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <span className="truncate">{getEpsEstimateProvenance(data).compositeText}</span>
+                            </div>
+                          </div>
+
+                          {/* Div Yield */}
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">
                               Div Yield
                             </p>
                             <p className={cn(
-                              "text-sm sm:text-base font-semibold tabular-nums whitespace-nowrap",
+                              "text-sm font-semibold tabular-nums whitespace-nowrap",
                               Boolean(data.dividendYield && data.dividendYield > 0)
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : "text-neutral-500 dark:text-neutral-400"
@@ -1306,14 +1464,20 @@ export default function Home() {
                               {Boolean(data.dividendYield && data.dividendYield > 0) ? `${data.dividendYield.toFixed(2)}%` : 'None'}
                             </p>
                             {Boolean(data.dividendYield && data.dividendYield > 0) ? (
-                              <p className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 mt-0.5 tabular-nums leading-snug break-words">
-                                {data.dividendRate 
-                                  ? `${formatCurrency(data.dividendRate, currency)}/yr` 
-                                  : (data.dividendAmount ? `${formatCurrency(data.dividendAmount * 4, currency)}/yr` : 'Annualized')}
-                                {data.exDividendDate ? ` · Ex: ${formatDivDateShort(data.exDividendDate)}` : ''}
-                              </p>
+                              <>
+                                <p className="text-[9.5px] font-medium text-neutral-500 dark:text-neutral-400 mt-0.5 tabular-nums leading-snug truncate">
+                                  {data.dividendRate 
+                                    ? `${formatCurrency(data.dividendRate, currency)}/yr` 
+                                    : (data.dividendAmount ? `${formatCurrency(data.dividendAmount * 4, currency)}/yr` : 'Annualized')}
+                                  {data.exDividendDate ? ` · Ex: ${formatDivDateShort(data.exDividendDate)}` : ''}
+                                </p>
+                                <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 mt-0.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 shrink-0" />
+                                  <span>Board Declared</span>
+                                </div>
+                              </>
                             ) : (
-                              <p className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 mt-0.5 whitespace-nowrap">
+                              <p className="text-[9.5px] font-medium text-neutral-500 dark:text-neutral-400 mt-0.5 whitespace-nowrap">
                                 Growth profile
                               </p>
                             )}
@@ -1322,25 +1486,29 @@ export default function Home() {
                       </div>
 
                       {/* Integrated Fundamentals Footer Strip */}
-                      <div className="pt-3 mt-3 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
-                        <span className="text-[11px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap">
-                          ATH Anchor Price
-                        </span>
-                        <span className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums whitespace-nowrap">
+                      <div className="pt-2 mt-2.5 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-[10px] text-neutral-400 dark:text-neutral-500 whitespace-nowrap block">
+                            ATH Anchor Price
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold font-mono text-neutral-800 dark:text-neutral-200 tabular-nums whitespace-nowrap">
                           {data.avwapAth ? formatCurrency(data.avwapAth.avwapPrice, currency) : 'N/A'}
                         </span>
                       </div>
                     </motion.div>
                   </div>
 
-                  {/* Chart Section */}
-                  <StockPriceChart 
-                    data={data}
-                    chartData={chartData}
-                    avgPrice={avgPrice}
-                    currency={currency}
-                    lastUpdated={lastUpdated}
-                  />
+                  {/* Market reaction card (rendered conditionally when extended hours data is present and market is not open in regular session) */}
+                  {data.extendedHours && !data.extendedHours.isMarketOpen && !isExchangeMarketOpen(data.ticker, data.exchange, data.exchangeTimezone) && (
+                    <MarketReactionCard 
+                      data={data.extendedHours}
+                      currency={currency}
+                      ticker={data.ticker}
+                      exchange={data.exchange}
+                      exchangeTimezone={data.exchangeTimezone}
+                    />
+                  )}
 
                   {/* Market Sentiment & Intelligence Dashboard */}
                   <div className="bg-white dark:bg-[#121212] p-5 md:p-6 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs space-y-6">
@@ -1494,11 +1662,12 @@ export default function Home() {
                           };
 
                           const badge = getSentimentBadge(item.sentiment);
+                          const articleUrl = resolveNewsArticleUrl(item.url, data.ticker, item.title, item.source);
 
                           return (
                             <motion.a 
                               key={i} 
-                              href={item.url} 
+                              href={articleUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
                               whileHover={{ y: -3 }}
@@ -1553,17 +1722,6 @@ export default function Home() {
                 <motion.div variants={itemVariants} className="space-y-5">
                   {/* Recommendation Thesis (Positioned above Next Catalyst) */}
                   <WhyThisRecommendation data={data} currency={currency} />
-
-                  {/* Market reaction card (rendered conditionally when extended hours data is present and market is not open in regular session) */}
-                  {data.extendedHours && !data.extendedHours.isMarketOpen && !isExchangeMarketOpen(data.ticker, data.exchange, data.exchangeTimezone) && (
-                    <MarketReactionCard 
-                      data={data.extendedHours}
-                      currency={currency}
-                      ticker={data.ticker}
-                      exchange={data.exchange}
-                      exchangeTimezone={data.exchangeTimezone}
-                    />
-                  )}
 
                   {/* NEXT CATALYST: High-Impact Decision Driver & Consensus Estimates */}
                   {(() => {
@@ -1717,12 +1875,21 @@ export default function Home() {
                             {hasEpsEstimate && (
                               <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-100 dark:border-neutral-800/80 flex flex-col justify-between">
                                 <div>
-                                  <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">
-                                    Estimated EPS
-                                  </p>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                                      Estimated EPS
+                                    </p>
+                                    <span className="text-[8.5px] font-bold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-mono">
+                                      ESTIMATE
+                                    </span>
+                                  </div>
                                   <p className="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100 tracking-tight font-mono">
                                     {earnings.epsEstimate}
                                   </p>
+                                  <div className="text-[9.5px] font-mono text-amber-700/80 dark:text-amber-400/80 flex items-center gap-1 mt-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                    <span>Consensus · Wall St Survey · {earnings.fiscalQuarter || 'Fiscal Q3'}</span>
+                                  </div>
                                 </div>
                                 {earnings.epsGrowthYoY ? (
                                   <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 leading-snug break-words">
@@ -1740,12 +1907,21 @@ export default function Home() {
                             {hasRevEstimate && (
                               <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 border border-neutral-100 dark:border-neutral-800/80 flex flex-col justify-between">
                                 <div>
-                                  <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">
-                                    Revenue Consensus
-                                  </p>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                                      Revenue Consensus
+                                    </p>
+                                    <span className="text-[8.5px] font-bold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-mono">
+                                      ESTIMATE
+                                    </span>
+                                  </div>
                                   <p className="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100 tracking-tight font-mono">
                                     {earnings.revenueEstimate}
                                   </p>
+                                  <div className="text-[9.5px] font-mono text-amber-700/80 dark:text-amber-400/80 flex items-center gap-1 mt-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                    <span>Consensus · Surveyed Analysts · {earnings.fiscalQuarter || 'Fiscal Q3'}</span>
+                                  </div>
                                 </div>
                                 {earnings.revenueGrowthYoY ? (
                                   <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 leading-snug break-words">
@@ -1784,21 +1960,18 @@ export default function Home() {
                       </motion.div>
                     );
                   })()}
-
-                  {/* Multi-Currency Valuation & Global FX Pricing */}
-                  <MultiCurrencyValuation 
-                    currentPrice={data.currentPrice}
-                    activeCurrency={currency}
-                    shares={shares ? parseFloat(shares) : undefined}
-                    ticker={data.ticker}
-                    onCurrencyChange={handleCurrencyChange}
-                  />
                 </motion.div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </main>
+
+      {/* Market Timing & Hours Guide Modal */}
+      <MarketHoursGuideModal 
+        isOpen={showTimingModal} 
+        onClose={() => setShowTimingModal(false)} 
+      />
     </div>
   );
 }

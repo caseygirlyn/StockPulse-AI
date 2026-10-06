@@ -1,4 +1,5 @@
 import { resolveTickerLogoUrl, getAuthoritativeCompanyName } from '../utils/tickerLogos';
+import { safeParseResponseJson } from '../utils';
 import type { RecommendationAction } from './serverStock';
 
 export interface PortfolioPosition {
@@ -187,11 +188,13 @@ export async function fetchPortfolio(): Promise<PortfolioPosition[]> {
   const deletedSet = getDeletedTickers();
 
   try {
-    const res = await fetch('/api/portfolio');
+    const res = await fetch('/api/portfolio', {
+      headers: { 'Accept': 'application/json' }
+    });
     if (!res.ok) {
       throw new Error(`Server returned ${res.status}`);
     }
-    const data = await res.json();
+    const data = await safeParseResponseJson<any>(res);
     if (data && Array.isArray(data.positions)) {
       const serverPositions: PortfolioPosition[] = data.positions.map((p: any) => ({
         ...p,
@@ -296,10 +299,13 @@ export async function clearAllPortfolioPositions(): Promise<void> {
 export async function resetToDefaultPortfolio(): Promise<PortfolioPosition[]> {
   clearAllDeletedTickers();
   try {
-    const res = await fetch('/api/portfolio/reset', { method: 'POST' });
+    const res = await fetch('/api/portfolio/reset', { 
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    });
     if (res.ok) {
-      const data = await res.json();
-      if (data.positions && Array.isArray(data.positions)) {
+      const data = await safeParseResponseJson<any>(res);
+      if (data && data.positions && Array.isArray(data.positions)) {
         const positions: PortfolioPosition[] = data.positions.map((p: any) => ({
           ...p,
           name: getAuthoritativeCompanyName(p.ticker, p.name),
@@ -376,11 +382,14 @@ export async function savePortfolioPosition(position: Partial<PortfolioPosition>
   try {
     const res = await fetch('/api/portfolio', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(fullPosition)
     });
     if (res.ok) {
-      const saved = await res.json();
+      const saved = await safeParseResponseJson<any>(res);
       if (saved && saved.ticker) {
         savedResult = saved;
         // Re-cache with any server-populated live price/exchange data

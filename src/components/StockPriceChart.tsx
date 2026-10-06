@@ -346,10 +346,13 @@ function StockPriceChart({
       {/* ======================================================== */}
       {/* SECTION 1: HEADER & MARKET-OBSERVED CONTEXT (HARD DATA)  */}
       {/* ======================================================== */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-black/5 dark:border-white/5">
+      <div className="space-y-3 pb-3 border-b border-black/5 dark:border-white/5">
+        {/* Full-Width Header & Sub-Header */}
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-black text-lg tracking-tight">Price Performance & Structural Analysis</h4>
+            <h4 className="font-black text-lg tracking-tight text-neutral-900 dark:text-neutral-100">
+              Price Performance & Structural Analysis
+            </h4>
             <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-black/70 dark:text-white/70">
               30-Day Window
             </span>
@@ -366,69 +369,81 @@ function StockPriceChart({
               Trend: {trend}
             </span>
           </div>
-          <p className="text-[10px] font-medium text-black/40 dark:text-white/40 mt-0.5">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
             Transparent quantitative framework distinguishing hard market range from modeled support/resistance zones
           </p>
         </div>
 
-        {/* 30D Price Highlights Badges */}
+        {/* 30D Price Highlights Badges (Placed below description in a responsive 3-column grid) */}
         {stats && (
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 text-xs pt-0.5">
             {/* Explicit 30D Change Presentation */}
-            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
-              <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
+            <div className="p-3 rounded-xl bg-neutral-50/80 dark:bg-white/[0.03] border border-neutral-200/70 dark:border-white/5 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-neutral-500 block">
                 30D Price Change
               </span>
               <div className={cn(
-                "font-black font-mono text-xs flex items-center gap-1",
+                "font-black font-mono text-sm flex items-center gap-1",
                 stats.periodChange >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
               )}>
-                {stats.periodChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                {stats.periodChange >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                 <span>
                   {stats.periodChange >= 0 ? '+' : ''}{formatCurrency(stats.periodChange, currency)} ({stats.periodChange >= 0 ? '+' : ''}{stats.periodChangePercent.toFixed(2)}%)
                 </span>
               </div>
-              <div className="text-[9px] font-mono text-black/50 dark:text-white/50 flex items-center gap-1">
+              <div className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
                 <span>{formatCurrency(stats.firstPrice, currency)}</span>
                 <ArrowRight className="w-2.5 h-2.5" />
-                <span className="font-bold text-black/80 dark:text-white/80">{formatCurrency(stats.lastPrice, currency)}</span>
+                <span className="font-bold text-neutral-800 dark:text-neutral-200">{formatCurrency(stats.lastPrice, currency)}</span>
+              </div>
+              <div className="text-[9px] font-mono text-neutral-500 dark:text-neutral-400 flex items-center gap-1 pt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>Market Data · 30D Close Delta</span>
               </div>
             </div>
 
             {/* 30D Hard Market Range */}
-            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
-              <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
+            <div className="p-3 rounded-xl bg-neutral-50/80 dark:bg-white/[0.03] border border-neutral-200/70 dark:border-white/5 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-neutral-500 block">
                 30D Market Range
               </span>
-              <div className="text-xs font-black font-mono text-black dark:text-white flex items-center gap-1.5">
+              <div className="text-sm font-black font-mono text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
                 <span className="text-red-500">{formatCurrency(stats.minPrice, currency)}</span>
-                <span className="text-black/30 dark:text-white/30">to</span>
+                <span className="text-neutral-300 dark:text-neutral-600 font-sans text-xs">to</span>
                 <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(stats.maxPrice, currency)}</span>
               </div>
-              <div className="text-[9px] font-medium text-black/40 dark:text-white/40">
+              <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                 Low on {stats.minDate} • High on {stats.maxDate}
+              </div>
+              <div className="text-[9px] font-mono text-neutral-500 dark:text-neutral-400 flex items-center gap-1 pt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>Market Data · High/Low Observed</span>
               </div>
             </div>
 
             {/* Volume Liquidity Context */}
-            <div className="p-2 sm:p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 space-y-0.5">
-              <span className="text-[8px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
+            <div className="p-3 rounded-xl bg-neutral-50/80 dark:bg-white/[0.03] border border-neutral-200/70 dark:border-white/5 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-neutral-500 block">
                 20D Avg Volume
               </span>
-              <div className="text-xs font-black font-mono text-black dark:text-white flex items-center gap-1">
-                <BarChart2 className="w-3 h-3 text-emerald-500" />
+              <div className="text-sm font-black font-mono text-neutral-900 dark:text-neutral-100 flex items-center gap-1">
+                <BarChart2 className="w-3.5 h-3.5 text-emerald-500" />
                 <span>{formatCompactVol(data.avgVolume20d || stats.avgVol)}</span>
                 {data.relativeVolume !== undefined && (
                   <span className={cn(
                     "text-[9px] px-1 py-0.2 rounded font-mono font-bold",
-                    data.relativeVolume >= 1.2 ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300" : "bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60"
+                    data.relativeVolume >= 1.2 ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300" : "bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
                   )}>
                     {data.relativeVolume}x vol
                   </span>
                 )}
               </div>
-              <div className="text-[9px] font-medium text-black/40 dark:text-white/40">
+              <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                 Daily participation
+              </div>
+              <div className="text-[9px] font-mono text-neutral-500 dark:text-neutral-400 flex items-center gap-1 pt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>Market Data · 20D Exchange Volume</span>
               </div>
             </div>
           </div>
@@ -713,7 +728,7 @@ function StockPriceChart({
                 strokeWidth={1}
                 label={{ 
                   position: 'insideTopRight', 
-                  value: `BREAKOUT: ${canonicalLevels.breakout.display}`, 
+                  value: `BREAKOUT: ${canonicalLevels.breakout.priceDisplay} · ${canonicalLevels.breakout.distanceDisplay}`, 
                   fill: '#2563eb', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -732,7 +747,7 @@ function StockPriceChart({
                 strokeWidth={1}
                 label={{ 
                   position: 'insideTopRight', 
-                  value: `TARGET: ${canonicalLevels.target.display}`, 
+                  value: `TARGET: ${canonicalLevels.target.priceDisplay} · ${canonicalLevels.target.distanceDisplay}`, 
                   fill: '#10b981', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -751,7 +766,7 @@ function StockPriceChart({
                 strokeWidth={1}
                 label={{ 
                   position: 'insideTopLeft', 
-                  value: `MY ENTRY: ${formatCurrency(numAvgPrice, currency)}`, 
+                  value: `MY ENTRY: ${formatCurrency(numAvgPrice, currency)}${currentPrice > 0 ? ` · ${numAvgPrice >= currentPrice ? '+' : '−'}${Math.abs(((numAvgPrice - currentPrice) / currentPrice) * 100).toFixed(1)}%` : ''}`, 
                   fill: '#3b82f6', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -770,7 +785,7 @@ function StockPriceChart({
                 strokeWidth={1}
                 label={{ 
                   position: 'insideBottomLeft', 
-                  value: `ADD ZONE: ${canonicalLevels.addZone.display}`, 
+                  value: `ADD ZONE: ${canonicalLevels.addZone.display} · ${canonicalLevels.addZone.distanceDisplay}`, 
                   fill: '#059669', 
                   fontSize: 9, 
                   fontWeight: 900,
@@ -789,7 +804,7 @@ function StockPriceChart({
                 strokeWidth={1}
                 label={{ 
                   position: 'insideBottomRight', 
-                  value: `STOP LOSS: ${canonicalLevels.risk.display}`, 
+                  value: `STOP: ${canonicalLevels.risk.priceDisplay} · ${canonicalLevels.risk.distanceDisplay}`, 
                   fill: '#f43f5e', 
                   fontSize: 8, 
                   fontWeight: 900,
@@ -1073,15 +1088,27 @@ function StockPriceChart({
       )}
 
       {/* ======================================================== */}
-      {/* FOOTER: TIME, SOURCE, FEED TIMESTAMP                     */}
+      {/* FOOTER: TIME, SOURCE, MULTI-SOURCE EPISTEMIC STATUS      */}
       {/* ======================================================== */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[9px] font-bold text-black/40 dark:text-white/40 pt-3 border-t border-black/5 dark:border-white/5 gap-1.5">
-        <div className="flex items-center gap-2">
-          <span>Data Feed: <strong className="text-black/70 dark:text-white/70">{data.priceSource || 'Yahoo Finance Live'}</strong></span>
-          {data.exchange && <span>• Exchange: <strong className="text-black/70 dark:text-white/70">{data.exchange}</strong></span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <span>Quote Timestamp: <strong className="text-black/70 dark:text-white/70">{format(lastUpdated, 'yyyy-MM-dd HH:mm:ss')}</strong> {data.exchangeTimezone ? `(${data.exchangeTimezone})` : ''}</span>
+      <div className="pt-3 border-t border-black/5 dark:border-white/5 space-y-2 text-[9.5px] font-mono text-neutral-500 dark:text-neutral-400">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-neutral-700 dark:text-neutral-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span>Market Feed: <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{data.priceSource || 'Market Data Feed'}</strong> ({data.exchange || 'Exchange'})</span>
+            </span>
+            <span className="text-neutral-300 dark:text-neutral-700 hidden sm:inline">·</span>
+            <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
+              <span>Timestamp: <strong className="font-semibold text-neutral-700 dark:text-neutral-300">{format(lastUpdated, 'yyyy-MM-dd HH:mm:ss')}</strong> {data.exchangeTimezone ? `(${data.exchangeTimezone})` : ''}</span>
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-purple-600/90 dark:text-purple-400/90">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+              <span>Model: <strong className="font-semibold">Deterministic ATR & Volatility Corridor Framework</strong></span>
+            </span>
+          </div>
         </div>
       </div>
     </div>

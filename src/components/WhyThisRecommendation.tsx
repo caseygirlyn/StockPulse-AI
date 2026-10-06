@@ -1,16 +1,20 @@
 import React from 'react';
 import { 
   Sparkles, 
-  TrendingUp,
+  TrendingUp, 
   Activity, 
   Scale, 
   BarChart2, 
   CheckCircle2, 
-  ShieldCheck
+  ShieldCheck,
+  HelpCircle,
+  Info,
+  Calculator
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { StockData } from '../services/geminiService';
-import { cn } from '../utils';
+import { cn, formatCurrency } from '../utils';
+import { computeCanonicalTradeGeometry } from '../utils/canonicalLevels';
 
 interface WhyThisRecommendationProps {
   data: StockData;
@@ -20,9 +24,11 @@ interface WhyThisRecommendationProps {
 
 export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({ 
   data, 
+  currency,
   className 
 }) => {
   const currentPx = data.currentPrice || 0;
+  const effectiveCurrency = currency || 'USD';
   const analysis = data.analysis;
   const rec = data.recommendation;
 
@@ -47,14 +53,10 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
   const pe = data.peRatio;
   const valuationLabel = pe && pe > 35 ? 'Premium Multiple' : pe && pe < 18 && pe > 0 ? 'Attractive Multiple' : pe ? 'Fair Value Multiple' : 'Growth Multiple';
 
-  // Trade Geometry: Risk/Reward calculation
+  // Canonical Trade Geometry: mathematically unified single source of truth
   const stopLoss = rec.stopLoss || currentPx * 0.95;
   const profitTarget = rec.profitTarget || currentPx * 1.15;
-  const riskAmount = Math.max(0.01, currentPx - stopLoss);
-  const rewardAmount = Math.max(0.01, profitTarget - currentPx);
-  const riskPercent = currentPx > 0 ? ((currentPx - stopLoss) / currentPx) * 100 : 5;
-  const rewardPercent = currentPx > 0 ? ((profitTarget - currentPx) / currentPx) * 100 : 15;
-  const rrRatio = rec.riskRewardRatio || Number((rewardAmount / riskAmount).toFixed(1));
+  const tradeGeometry = computeCanonicalTradeGeometry(currentPx, stopLoss, profitTarget, effectiveCurrency);
 
   // Progress percentage between stop and target
   const totalSpan = Math.max(0.01, profitTarget - stopLoss);
@@ -85,7 +87,7 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
     .slice(0, 3);
 
   // Overall qualitative setup bias badge
-  const biasLabel = trend === 'Bullish' && rrRatio >= 2.0 ? 'Asymmetric Setup' :
+  const biasLabel = trend === 'Bullish' && tradeGeometry.rewardRiskRatio >= 1.8 ? 'Asymmetric Setup' :
     trend === 'Bullish' ? 'Constructive' :
     trend === 'Bearish' ? 'Defensive' : 'Balanced Setup';
 
@@ -137,6 +139,10 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
           <p className="text-[11px] text-neutral-700 dark:text-neutral-300 font-medium leading-snug break-words">
             {isAboveMa20 ? 'Above 20D MA' : 'Testing 20D MA'}
           </p>
+          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 pt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <span>Market · 20D MA</span>
+          </div>
         </div>
 
         {/* Tile 2: Momentum (RSI) */}
@@ -153,6 +159,10 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
           <p className="text-[11px] text-neutral-700 dark:text-neutral-300 font-medium leading-snug break-words">
             {momentumStatus}
           </p>
+          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 pt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <span>Market · 14D RSI</span>
+          </div>
         </div>
 
         {/* Tile 3: Volume Confirmation */}
@@ -169,6 +179,10 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
           <p className="text-[11px] text-neutral-700 dark:text-neutral-300 font-medium leading-snug break-words">
             {volStatus}
           </p>
+          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 pt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <span>Market · 20D Relative Flow</span>
+          </div>
         </div>
 
         {/* Tile 4: Valuation Profile */}
@@ -185,19 +199,83 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
           <p className="text-[11px] text-neutral-700 dark:text-neutral-300 font-medium leading-snug break-words">
             {valuationLabel}
           </p>
+          <div className="text-[9px] font-mono text-neutral-400 dark:text-neutral-500 flex items-center gap-1 pt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 shrink-0" />
+            <span>Reported GAAP · TTM</span>
+          </div>
         </div>
       </div>
 
-      {/* Trade Geometry Bar: Asymmetric Risk-Reward Visual (No redundant dollar prices) */}
-      <div className="p-2.5 rounded-xl bg-neutral-50/90 dark:bg-[#161616] border border-neutral-200/70 dark:border-neutral-800/80 space-y-1.5">
+      {/* Trade Geometry Bar: Asymmetric Risk-Reward Visual */}
+      <div className="p-3 rounded-xl bg-neutral-50/90 dark:bg-[#161616] border border-neutral-200/70 dark:border-neutral-800/80 space-y-2">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            Trade Asymmetry
-          </span>
-          <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-            {rrRatio}:1 Risk / Reward
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              Trade Asymmetry
+            </span>
+            <span className="text-[9px] font-mono text-purple-600/80 dark:text-purple-400/80 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+              <span>Model Geometry</span>
+            </span>
+          </div>
+
+          {/* Canonical R:R Badge with Interactive Hover Formula */}
+          <div className="relative group/rr cursor-help">
+            <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-colors">
+              <span>{tradeGeometry.multiplierFormatted}</span>
+              <span className="text-[10px] font-bold opacity-80">({tradeGeometry.ratioFormatted}) Payoff</span>
+              <HelpCircle className="w-3 h-3 opacity-60 group-hover/rr:opacity-100 transition-opacity" />
+            </span>
+
+            {/* Hover Tooltip: Formula Breakdown & EV Distinction */}
+            <div className="absolute right-0 top-full mt-2 w-72 sm:w-84 p-3 rounded-xl bg-neutral-900/95 dark:bg-black/95 text-white backdrop-blur-md shadow-2xl border border-neutral-700/80 dark:border-neutral-800 text-[11px] leading-relaxed opacity-0 pointer-events-none group-hover/rr:opacity-100 group-hover/rr:pointer-events-auto transition-all duration-200 z-50">
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5 mb-2 font-sans">
+                <span className="font-bold text-xs text-neutral-200 flex items-center gap-1.5">
+                  <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+                  Canonical Formula Breakdown
+                </span>
+                <span className="font-mono text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded">
+                  {tradeGeometry.multiplierFormatted}
+                </span>
+              </div>
+
+              {/* Exact Formula Lines */}
+              <div className="space-y-1 font-mono text-[10.5px]">
+                <div className="flex justify-between items-center text-rose-300">
+                  <span>Risk (Downside):</span>
+                  <span className="font-bold">−{Math.abs(tradeGeometry.downsidePct).toFixed(1)}% ({formatCurrency(tradeGeometry.riskAmount, effectiveCurrency)})</span>
+                </div>
+                <div className="flex justify-between items-center text-emerald-300">
+                  <span>Reward (Upside):</span>
+                  <span className="font-bold">+{tradeGeometry.upsidePct.toFixed(1)}% ({formatCurrency(tradeGeometry.rewardAmount, effectiveCurrency)})</span>
+                </div>
+                <div className="border-t border-neutral-800 pt-1 flex justify-between items-center text-neutral-100 font-bold">
+                  <span>Reward / Risk:</span>
+                  <span className="text-emerald-400">
+                    +{tradeGeometry.upsidePct.toFixed(1)}% ÷ {Math.abs(tradeGeometry.downsidePct).toFixed(1)}% = {tradeGeometry.multiplierFormatted}
+                  </span>
+                </div>
+                <div className="text-[9.5px] text-neutral-400 font-sans pt-0.5">
+                  Calculation: ({formatCurrency(tradeGeometry.rewardAmount, effectiveCurrency)} ÷ {formatCurrency(tradeGeometry.riskAmount, effectiveCurrency)})
+                </div>
+              </div>
+
+              {/* EV Distinction Reality Check */}
+              <div className="mt-2.5 pt-2 border-t border-neutral-800/80 text-[10px] font-sans text-neutral-300 space-y-1">
+                <div className="font-bold text-amber-300 flex items-center gap-1">
+                  <Info className="w-3 h-3 text-amber-400 shrink-0" />
+                  R:R vs Expected Value (EV):
+                </div>
+                <p className="text-neutral-300 leading-snug">
+                  {tradeGeometry.multiplierFormatted} is the geometric payoff ratio, not probability-adjusted Expected Value (EV). A {tradeGeometry.ratioFormatted} payoff requires a win rate &gt; {tradeGeometry.breakEvenWinRate}% to break even.
+                </p>
+                <p className="text-neutral-400 leading-snug">
+                  Viability depends on multi-factor confluence (Signal Agreement &amp; moving average alignment).
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Visual Scale */}
@@ -221,11 +299,17 @@ export const WhyThisRecommendation: React.FC<WhyThisRecommendationProps> = ({
           </div>
 
           <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
-            <span className="text-rose-600 dark:text-rose-400 font-medium">
-              Downside Risk: -{riskPercent.toFixed(1)}%
+            <span 
+              className="text-rose-600 dark:text-rose-400 font-medium cursor-help"
+              title={tradeGeometry.formulaDisplay.riskFormula}
+            >
+              Stop {formatCurrency(tradeGeometry.stopPrice, effectiveCurrency)} · {tradeGeometry.downsidePct < 0 ? '−' : '+'}{Math.abs(tradeGeometry.downsidePct).toFixed(1)}%
             </span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-              Upside Target: +{rewardPercent.toFixed(1)}%
+            <span 
+              className="text-emerald-600 dark:text-emerald-400 font-medium cursor-help"
+              title={tradeGeometry.formulaDisplay.rewardFormula}
+            >
+              Target {formatCurrency(tradeGeometry.targetPrice, effectiveCurrency)} · +{tradeGeometry.upsidePct.toFixed(1)}%
             </span>
           </div>
         </div>

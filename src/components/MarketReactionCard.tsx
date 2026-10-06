@@ -96,7 +96,7 @@ export const MarketReactionCard: React.FC<MarketReactionCardProps> = ({
         className
       )}
     >
-      {/* 1. Header Bar: Spacious two-line layout ensuring all text fits cleanly */}
+      {/* 1. Header Bar: Aligned padding matching standard cards */}
       <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/40 dark:bg-neutral-900/20 space-y-2">
         {/* Top Row: Title & Live Session Badge */}
         <div className="flex items-center justify-between gap-2">
@@ -116,97 +116,104 @@ export const MarketReactionCard: React.FC<MarketReactionCardProps> = ({
         </div>
 
         {/* Active Quote Row: Prominent Extended Price and Net Change */}
-        <div className="flex items-baseline justify-between pt-1 border-t border-neutral-200/50 dark:border-neutral-800/50 gap-2">
-          <div className="flex flex-wrap items-baseline gap-1.5 sm:gap-2">
-            <span className="text-base sm:text-lg font-mono font-black text-neutral-900 dark:text-neutral-50 tabular-nums">
-              {formatCurrency(activePrice, currency)}
-            </span>
-            <span className={cn(
-              "text-xs font-bold font-mono tabular-nums inline-flex items-center whitespace-nowrap",
-              isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-            )}>
-              {isPositive ? <ArrowUpRight className="w-3.5 h-3.5 mr-0.5 shrink-0" /> : <ArrowDownRight className="w-3.5 h-3.5 mr-0.5 shrink-0" />}
-              <span>{isPositive ? '+' : ''}{activeChangePct.toFixed(2)}%</span>
-              {activeChange !== 0 && (
-                <span className="text-[11px] opacity-80 ml-1">
-                  ({isPositive ? '+' : ''}{formatCurrency(Math.abs(activeChange), currency)})
-                </span>
-              )}
+        <div className="pt-1 border-t border-neutral-200/50 dark:border-neutral-800/50 space-y-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="flex flex-wrap items-baseline gap-1.5 sm:gap-2">
+              <span className="text-base sm:text-lg font-mono font-black text-neutral-900 dark:text-neutral-50 tabular-nums">
+                {formatCurrency(activePrice, currency)}
+              </span>
+              <span className={cn(
+                "text-xs font-bold font-mono tabular-nums inline-flex items-center whitespace-nowrap",
+                isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+              )}>
+                {isPositive ? <ArrowUpRight className="w-3.5 h-3.5 mr-0.5 shrink-0" /> : <ArrowDownRight className="w-3.5 h-3.5 mr-0.5 shrink-0" />}
+                <span>{isPositive ? '+' : ''}{activeChangePct.toFixed(2)}%</span>
+                {activeChange !== 0 && (
+                  <span className="text-[11px] opacity-80 ml-1">
+                    ({isPositive ? '+' : ''}{formatCurrency(Math.abs(activeChange), currency)})
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <span className="text-[10px] font-medium text-neutral-400 dark:text-neutral-500 shrink-0 whitespace-nowrap">
+              vs close
             </span>
           </div>
 
-          <span className="text-[10px] font-medium text-neutral-400 dark:text-neutral-500 shrink-0 whitespace-nowrap">
-            vs close
-          </span>
+          <div className="text-[9.5px] font-mono text-indigo-600/90 dark:text-indigo-400/90 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+            <span>{sessionBadge} · ECN Crossing Quote</span>
+          </div>
         </div>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-4">
-        {/* 2. Core 2x2 Metric Grid (Unified, Deduped & Reordered) */}
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 text-xs">
+      <div className="p-4 sm:p-5 space-y-3.5 sm:space-y-4">
+        {/* 2. Core 4-Column Metric Grid on Desktop */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
           {/* Metric 1: Session Range */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-snug">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between h-full">
+            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-tight">
               {sessionBadge} Range
             </span>
             {sessionLow && sessionHigh ? (
-              <div className="font-mono font-bold text-xs sm:text-sm text-neutral-800 dark:text-neutral-100 tabular-nums flex flex-wrap items-baseline gap-x-1 gap-y-0.5 leading-snug">
+              <div className="font-mono font-bold text-xs sm:text-[13px] text-neutral-800 dark:text-neutral-100 tabular-nums flex flex-wrap items-baseline gap-x-1 leading-snug">
                 <span>{formatCurrency(sessionLow, currency)}</span>
                 <span className="text-neutral-400 dark:text-neutral-500 font-normal text-xs">–</span>
                 <span>{formatCurrency(sessionHigh, currency)}</span>
               </div>
             ) : (
-              <p className="font-mono font-bold text-xs sm:text-sm text-neutral-800 dark:text-neutral-100 leading-snug">
+              <p className="font-mono font-bold text-xs text-neutral-800 dark:text-neutral-100 leading-snug">
                 Corridor intact
               </p>
             )}
-            <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 font-mono mt-1 leading-snug break-words">
-              Prev Close: {formatCurrency(data.previousClose, currency)}
+            <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 font-mono mt-1 leading-tight">
+              Prev: {formatCurrency(data.previousClose, currency)}
             </div>
           </div>
 
           {/* Metric 2: Extended Volume Profile */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-snug">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between h-full">
+            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-tight">
               Ext-Hours Volume
             </span>
-            <p className="font-mono font-black text-xs sm:text-sm text-neutral-900 dark:text-neutral-50 tabular-nums leading-snug break-words">
+            <p className="font-mono font-black text-xs sm:text-[13px] text-neutral-900 dark:text-neutral-50 tabular-nums leading-snug">
               {data.extendedHoursVolumeFormatted || (data.extendedHoursVolume ? `${(data.extendedHoursVolume / 1000).toFixed(0)}K shares` : 'Active')}
             </p>
-            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 mt-1 leading-snug block">
+            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 mt-1 leading-tight block">
               Above avg liquidity
             </span>
           </div>
 
           {/* Metric 3: Order Book Spread (Bid x Ask) */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-snug">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between h-full">
+            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-tight">
               Bid / Ask Corridor
             </span>
             {data.bid && data.ask ? (
-              <div className="font-mono font-bold text-xs sm:text-sm text-neutral-800 dark:text-neutral-100 tabular-nums flex flex-wrap items-baseline gap-x-1 gap-y-0.5 leading-snug">
+              <div className="font-mono font-bold text-xs sm:text-[13px] text-neutral-800 dark:text-neutral-100 tabular-nums flex flex-wrap items-baseline gap-x-1 leading-snug">
                 <span>{formatCurrency(data.bid, currency)}</span>
                 <span className="text-neutral-400 dark:text-neutral-500 font-normal text-xs">×</span>
                 <span>{formatCurrency(data.ask, currency)}</span>
               </div>
             ) : (
-              <p className="font-mono font-bold text-xs sm:text-sm text-neutral-800 dark:text-neutral-100 leading-snug">
+              <p className="font-mono font-bold text-xs text-neutral-800 dark:text-neutral-100 leading-snug">
                 Tight spread
               </p>
             )}
-            <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 font-mono mt-1 leading-snug break-words">
+            <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 font-mono mt-1 leading-tight">
               Spread: {data.spreadPercent ? `${data.spreadPercent}%` : data.spread ? formatCurrency(data.spread, currency) : 'Normal'}
             </div>
           </div>
 
           {/* Metric 4: Reaction Sentiment & Confidence */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-snug">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-neutral-50 dark:bg-[#181818] border border-neutral-200/70 dark:border-neutral-800 flex flex-col justify-between h-full">
+            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1 block leading-tight">
               Reaction Sentiment
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className={cn(
-                "inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md border capitalize shrink-0",
+                "inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md border capitalize shrink-0",
                 sentimentBadgeClass
               )}>
                 <SentimentIcon className="w-3 h-3 shrink-0" />
@@ -223,11 +230,11 @@ export const MarketReactionCard: React.FC<MarketReactionCardProps> = ({
         </div>
 
         {/* 3. Signal Quality & Reliability Bar (Merged & Polished) */}
-        <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/50 border border-neutral-200/70 dark:border-neutral-800 space-y-2">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/50 border border-neutral-200/70 dark:border-neutral-800 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400 shrink-0" />
-              <span className="font-bold text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
+              <span className="font-bold text-neutral-700 dark:text-neutral-300 text-xs whitespace-nowrap">
                 Signal Reliability:
               </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-200/70 dark:bg-neutral-800 font-semibold text-neutral-800 dark:text-neutral-200 whitespace-nowrap">
@@ -259,19 +266,19 @@ export const MarketReactionCard: React.FC<MarketReactionCardProps> = ({
 
           <div className="flex items-start gap-1.5 pt-0.5">
             <Info className="w-3 h-3 text-neutral-400 dark:text-neutral-500 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-relaxed break-words">
-              {data.contextInsight || "Early indicator and context layer only; regular-session volume and fundamentals remain authoritative."}
+            <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-snug">
+              {data.contextInsight || "Early indicator only; regular-session volume and fundamentals remain authoritative."}
             </p>
           </div>
         </div>
 
         {/* 4. Indicative Opening Price Projection (Streamlined Callout) */}
         {data.predictedOpenPrice && (
-          <div className="p-3 rounded-xl bg-amber-500/[0.06] dark:bg-amber-400/[0.04] border border-amber-200/70 dark:border-amber-800/40 flex items-start gap-2 text-xs">
+          <div className="p-3 sm:p-3.5 rounded-xl bg-amber-500/[0.06] dark:bg-amber-400/[0.04] border border-amber-200/70 dark:border-amber-800/40 flex items-start gap-2 text-xs">
             <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1 flex-1 min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <div className="flex flex-wrap items-center gap-1.5 font-bold text-neutral-900 dark:text-neutral-100">
+                <div className="flex flex-wrap items-center gap-1.5 font-bold text-neutral-900 dark:text-neutral-100 text-xs">
                   <span>Indicative Open:</span>
                   <span className="font-mono text-amber-900 dark:text-amber-200">
                     {formatCurrency(data.predictedOpenPrice, currency)}
@@ -289,7 +296,7 @@ export const MarketReactionCard: React.FC<MarketReactionCardProps> = ({
                   Indicative
                 </span>
               </div>
-              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-snug break-words">
+              <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-snug">
                 {data.predictionCautionNote || 'Opening prices may deviate as regular session auction imbalances converge.'}
               </p>
             </div>

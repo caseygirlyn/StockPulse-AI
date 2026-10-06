@@ -1,5 +1,6 @@
 import { StockData } from '../services/geminiService';
 import { formatCurrency } from '../utils';
+import { computeCanonicalTradeGeometry, getCanonicalLevels } from './canonicalLevels';
 
 export interface MonitoredSignal {
   id: string;
@@ -27,6 +28,8 @@ export function computeSignalAgreement(data: StockData, currency: string = 'USD'
   const rec = data.recommendation;
   const fmt = (val?: number) => val !== undefined ? formatCurrency(val, currency) : '—';
 
+  const canonical = getCanonicalLevels(data, currency);
+
   const trend = analysis?.trend || 'Neutral';
   const rsi = typeof analysis?.rsi14 === 'number' 
     ? analysis.rsi14 
@@ -34,16 +37,17 @@ export function computeSignalAgreement(data: StockData, currency: string = 'USD'
   const relVol = typeof analysis?.relativeVolume === 'number' 
     ? analysis.relativeVolume 
     : (typeof data.relativeVolume === 'number' ? data.relativeVolume : 1.0);
-  const riskReward = rec?.riskRewardRatio || 2.0;
+  const stopLoss = canonical.risk.price;
+  const profitTarget = canonical.target.price;
+  const support = analysis?.support || stopLoss * 1.03;
+  const resistance = analysis?.resistance || profitTarget * 0.95;
+  const addZoneLow = canonical.addZone.low;
+  const addZoneHigh = canonical.addZone.high;
   const ma20 = data.ma20 || data.ma5;
   const ma50 = data.ma50;
-  const stopLoss = rec?.stopLoss || currentPrice * 0.95;
-  const support = analysis?.support || stopLoss * 1.03;
-  const profitTarget = rec?.profitTarget || currentPrice * 1.15;
-  const resistance = analysis?.resistance || profitTarget * 0.95;
-  const idealEntry = rec?.idealEntryPrice || currentPrice;
-  const addZoneLow = rec?.addZone?.low || idealEntry * 0.97;
-  const addZoneHigh = rec?.addZone?.high || idealEntry;
+
+  const tradeGeometry = canonical.tradeGeometry;
+  const riskReward = tradeGeometry.rewardRiskRatio;
 
   const signals: MonitoredSignal[] = [];
 
@@ -112,31 +116,33 @@ export function computeSignalAgreement(data: StockData, currency: string = 'USD'
     isAligned: isVolConfirmed,
   });
 
-  // 5. Asymmetric Risk/Reward Ratio
-  const isRrFavorable = riskReward >= 2.0;
+  // 5. Asymmetric Risk/Reward Ratio (Payoff Ratio)
+  const isRrFavorable = riskReward >= 1.8;
   signals.push({
     id: 'risk_reward',
-    name: 'Risk-to-Reward Asymmetry',
+    name: 'Risk-to-Reward Payoff Ratio',
     category: 'Risk/Reward',
     status: isRrFavorable ? 'aligned' : 'caution',
-    measuredValue: `${riskReward.toFixed(1)}:1 calculated ratio`,
+    measuredValue: `${tradeGeometry.multiplierFormatted} (${tradeGeometry.ratioFormatted})`,
     explanation: isRrFavorable
-      ? `Satisfies professional trade minimum (≥2.0:1) with ${riskReward.toFixed(1)}x upside per unit risked.`
-      : `Current risk/reward (${riskReward.toFixed(1)}:1) does not meet the preferred 2.0:1 hurdle.`,
+      ? `Favorable geometric payoff (${tradeGeometry.multiplierFormatted}: Reward +${tradeGeometry.upsidePct.toFixed(1)}% vs Risk ${Math.abs(tradeGeometry.downsidePct).toFixed(1)}%). Requires >${tradeGeometry.breakEvenWinRate}% win rate for positive EV.`
+      : `Payoff ratio (${tradeGeometry.multiplierFormatted}) below preferred 1.8:1 hurdle. Requires higher win probability (>${tradeGeometry.breakEvenWinRate}%) for positive EV.`,
     isAligned: isRrFavorable,
   });
 
   // 6. Structural Support Proximity & Integrity
   const isSupportIntact = currentPrice >= support && currentPrice >= stopLoss;
+  const supportDist = currentPrice > 0 ? ((support - currentPrice) / currentPrice) * 100 : 0;
+  const supportDistStr = `${supportDist >= 0 ? '+' : '−'}${Math.abs(supportDist).toFixed(1)}%`;
   signals.push({
     id: 'support_integrity',
     name: 'Support Floor Integrity',
     category: 'Support/Resistance',
     status: isSupportIntact ? 'aligned' : 'caution',
-    measuredValue: `Support at ${fmt(support)}`,
+    measuredValue: `Support ${fmt(support)} · ${supportDistStr}`,
     explanation: isSupportIntact
-      ? `Price maintains structural integrity comfortably above key floor (${fmt(support)}).`
-      : `Price is pressing or violating major technical support (${fmt(support)}).`,
+      ? `Price maintains structural integrity comfortably above key floor (${fmt(support)} · ${supportDistStr}).`
+      : `Price is pressing or violating major technical support (${fmt(support)} · ${supportDistStr}).`,
     isAligned: isSupportIntact,
   });
 
@@ -147,7 +153,7 @@ export function computeSignalAgreement(data: StockData, currency: string = 'USD'
     name: 'Accumulation Corridor Discipline',
     category: 'Risk/Reward',
     status: isWithinOrDisciplined ? 'aligned' : 'caution',
-    measuredValue: `Add corridor: ${fmt(addZoneLow)}–${fmt(addZoneHigh)}`,
+    measuredValue: `Add corridor ${fmt(addZoneLow)}–${fmt(addZoneHigh)} · ${canonical.addZone.distanceDisplay}`,
     explanation: (currentPrice >= addZoneLow && currentPrice <= addZoneHigh)
       ? 'Trading directly within optimal asymmetric accumulation corridor.'
       : currentPrice > addZoneHigh
@@ -163,24 +169,26 @@ export function computeSignalAgreement(data: StockData, currency: string = 'USD'
     name: 'Downside Risk Boundary',
     category: 'Risk/Reward',
     status: isStopDefined ? 'aligned' : 'caution',
-    measuredValue: `Stop floor at ${fmt(stopLoss)}`,
+    measuredValue: `Stop ${fmt(stopLoss)} · ${canonical.risk.distanceDisplay}`,
     explanation: isStopDefined
-      ? `Defensive stop anchored below structural support (${fmt(stopLoss)}) to cap max drawdowns.`
+      ? `Defensive stop anchored below structural support (${fmt(stopLoss)} · ${canonical.risk.distanceDisplay}) to cap max drawdowns.`
       : `Current price has compromised or lacks clear defensive stop invalidation level.`,
     isAligned: isStopDefined,
   });
 
   // 9. Overhead Clearance to Major Resistance
   const hasHeadroom = resistance > currentPrice && ((resistance - currentPrice) / currentPrice) >= 0.03;
+  const resDist = currentPrice > 0 ? ((resistance - currentPrice) / currentPrice) * 100 : 0;
+  const resDistStr = `${resDist >= 0 ? '+' : '−'}${Math.abs(resDist).toFixed(1)}%`;
   signals.push({
     id: 'overhead_clearance',
     name: 'Overhead Resistance Clearance',
     category: 'Support/Resistance',
     status: hasHeadroom ? 'aligned' : 'caution',
-    measuredValue: `Resistance at ${fmt(resistance)}`,
+    measuredValue: `Resistance ${fmt(resistance)} · ${resDistStr}`,
     explanation: hasHeadroom
-      ? `Uncongested upside pathway to primary resistance ceiling (${fmt(resistance)}).`
-      : `Near-term overhead resistance (${fmt(resistance)}) restricts favorable upside expansion.`,
+      ? `Uncongested upside pathway to primary resistance ceiling (${fmt(resistance)} · ${resDistStr}).`
+      : `Near-term overhead resistance (${fmt(resistance)} · ${resDistStr}) restricts favorable upside expansion.`,
     isAligned: hasHeadroom,
   });
 

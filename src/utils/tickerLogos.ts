@@ -112,6 +112,37 @@ export const KNOWN_TICKER_DOMAINS: Record<string, string> = {
   'BA.L': 'baesystems.com',
 
   // UK & European Equities
+  'NESN': 'nestle.com',
+  'NESN.SW': 'nestle.com',
+  'NSRGY': 'nestle.com',
+  'NOVN': 'novartis.com',
+  'NOVN.SW': 'novartis.com',
+  'NVS': 'novartis.com',
+  'ROG': 'roche.com',
+  'ROG.SW': 'roche.com',
+  'RO.SW': 'roche.com',
+  'RHHBY': 'roche.com',
+  'UBSG': 'ubs.com',
+  'UBSG.SW': 'ubs.com',
+  'UBS': 'ubs.com',
+  'ABBN': 'abb.com',
+  'ABBN.SW': 'abb.com',
+  'ABBNY': 'abb.com',
+  'ZURN': 'zurich.com',
+  'ZURN.SW': 'zurich.com',
+  'ZURVY': 'zurich.com',
+  'CFR': 'richemont.com',
+  'CFR.SW': 'richemont.com',
+  'LONN': 'lonza.com',
+  'LONN.SW': 'lonza.com',
+  'SIKA': 'sika.com',
+  'SIKA.SW': 'sika.com',
+  'GIVN': 'givaudan.com',
+  'GIVN.SW': 'givaudan.com',
+  'ALC': 'alcon.com',
+  'ALC.SW': 'alcon.com',
+  'SCMN': 'swisscom.ch',
+  'SCMN.SW': 'swisscom.ch',
   'LLOY': 'lloydsbank.com',
   'LLOY.L': 'lloydsbank.com',
   'LYG': 'lloydsbank.com',
@@ -140,6 +171,7 @@ export const KNOWN_TICKER_DOMAINS: Record<string, string> = {
   'NEXT.L': 'nextplc.co.uk',
   'VOD': 'vodafone.com',
   'VOD.L': 'vodafone.com',
+  'BT': 'bt.com',
   'BT.A': 'bt.com',
   'BT-A.L': 'bt.com',
   'BT.L': 'bt.com',
@@ -502,6 +534,50 @@ export function formatFaviconUrl(domain: string): string {
   return `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${cleanDomain}&size=128`;
 }
 
+/**
+ * Returns an ordered array of candidate logo URLs (custom SVG, Google Favicon, DuckDuckGo, Unavatar)
+ * to provide a robust fallback chain if a CDN or network service fails.
+ */
+export function getTickerLogoCandidates(ticker: string, currentUrl?: string, companyName?: string): string[] {
+  const cleanTicker = (ticker || '').trim().toUpperCase();
+  const baseTicker = cleanTicker.split('.')[0];
+  const candidates: string[] = [];
+
+  // 1. Custom SVG logos (highest fidelity)
+  if (CUSTOM_TICKER_LOGOS[cleanTicker]) {
+    candidates.push(CUSTOM_TICKER_LOGOS[cleanTicker]);
+  }
+  if (CUSTOM_TICKER_LOGOS[baseTicker] && !candidates.includes(CUSTOM_TICKER_LOGOS[baseTicker])) {
+    candidates.push(CUSTOM_TICKER_LOGOS[baseTicker]);
+  }
+  if (companyName) {
+    const lowerName = companyName.toLowerCase();
+    if (lowerName.includes('coca-cola') || lowerName.includes('coke')) {
+      if (!candidates.includes('/logos/ko.svg')) candidates.push('/logos/ko.svg');
+    }
+    if (lowerName.includes('oracle')) {
+      if (!candidates.includes('/logos/orcl.svg')) candidates.push('/logos/orcl.svg');
+    }
+  }
+
+  // 2. Authoritative domain resolution
+  const authDomain = getAuthoritativeDomain(cleanTicker, companyName) || `${baseTicker.toLowerCase()}.com`;
+  if (authDomain) {
+    const cleanDomain = authDomain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
+    // Primary: Google Favicon service (high-resolution)
+    candidates.push(`https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${cleanDomain}&size=128`);
+    // Secondary fallback: Unavatar
+    candidates.push(`https://unavatar.io/${cleanDomain}?fallback=false`);
+  }
+
+  // 3. User or feed-provided URL
+  if (currentUrl && currentUrl.startsWith('http') && !candidates.includes(currentUrl)) {
+    candidates.push(currentUrl);
+  }
+
+  return candidates;
+}
+
 export const CUSTOM_TICKER_LOGOS: Record<string, string> = {
   'KO': '/logos/ko.svg',
   'COKE': '/logos/ko.svg',
@@ -745,6 +821,46 @@ export const KNOWN_TICKER_NAMES: Record<string, string> = {
   'BA.L': 'BAE Systems plc',
   'TSCO': 'Tesco PLC',
   'TSCO.L': 'Tesco PLC',
+  'BT': 'BT Group plc',
+  'BT.L': 'BT Group plc',
+  'BT-A.L': 'BT Group plc',
+  'BT.A': 'BT Group plc',
+  'BT.A.L': 'BT Group plc',
+  'BTA.L': 'BT Group plc',
+  'BTGOF': 'BT Group plc',
+
+  // Swiss Equities (SIX Swiss Exchange)
+  'NESN': 'Nestlé S.A.',
+  'NESN.SW': 'Nestlé S.A.',
+  'NSRGY': 'Nestlé S.A. (ADR)',
+  'NOVN': 'Novartis AG',
+  'NOVN.SW': 'Novartis AG',
+  'NVS': 'Novartis AG (ADR)',
+  'ROG': 'Roche Holding AG',
+  'ROG.SW': 'Roche Holding AG',
+  'RO.SW': 'Roche Holding AG',
+  'RHHBY': 'Roche Holding AG (ADR)',
+  'UBSG': 'UBS Group AG',
+  'UBSG.SW': 'UBS Group AG',
+  'UBS': 'UBS Group AG',
+  'ABBN': 'ABB Ltd',
+  'ABBN.SW': 'ABB Ltd',
+  'ABBNY': 'ABB Ltd (ADR)',
+  'ZURN': 'Zurich Insurance Group AG',
+  'ZURN.SW': 'Zurich Insurance Group AG',
+  'ZURVY': 'Zurich Insurance Group AG (ADR)',
+  'CFR': 'Compagnie Financière Richemont SA',
+  'CFR.SW': 'Compagnie Financière Richemont SA',
+  'LONN': 'Lonza Group AG',
+  'LONN.SW': 'Lonza Group AG',
+  'SIKA': 'Sika AG',
+  'SIKA.SW': 'Sika AG',
+  'GIVN': 'Givaudan SA',
+  'GIVN.SW': 'Givaudan SA',
+  'ALC': 'Alcon Inc.',
+  'ALC.SW': 'Alcon Inc.',
+  'SCMN': 'Swisscom AG',
+  'SCMN.SW': 'Swisscom AG',
 
   // Vanguard ETFs
   'VUAG': 'Vanguard S&P 500 UCITS ETF (USD) Accumulating',
@@ -870,7 +986,7 @@ export const KNOWN_TICKER_NAMES: Record<string, string> = {
   'GE': 'GE Aerospace',
   'HON': 'Honeywell International Inc.',
   'LMT': 'Lockheed Martin Corporation',
-  'RTX': 'RTX Corporation',
+  'RTX': 'RTX Corporation'
 };
 
 /**

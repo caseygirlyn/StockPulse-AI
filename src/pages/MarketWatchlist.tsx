@@ -65,7 +65,14 @@ export default function MarketWatchlist() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSector, setSelectedSector] = useState<SectorFilter>('All');
   const [sortBy, setSortBy] = useState<SortOption>('conviction_desc');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>(() => {
+    try {
+      const saved = localStorage.getItem('watchlist_view_mode');
+      return (saved === 'cards' || saved === 'table') ? saved : 'table';
+    } catch {
+      return 'table';
+    }
+  });
   
   // Track existing portfolio tickers to reflect added state
   const [savedTickers, setSavedTickers] = useState<Set<string>>(new Set());
@@ -394,35 +401,6 @@ export default function MarketWatchlist() {
         )}
       </AnimatePresence>
 
-      {/* Triggered Alerts Banner if any exist */}
-      {triggeredAlertsCount > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-              <BellRing className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-pulse" />
-            </div>
-            <div>
-              <h4 className="text-xs font-black uppercase tracking-wider text-amber-800 dark:text-amber-300">
-                {triggeredAlertsCount} Price Alert{triggeredAlertsCount > 1 ? 's' : ''} Triggered
-              </h4>
-              <p className="text-[11px] font-medium text-black/70 dark:text-white/70">
-                Target price thresholds have been breached. Review triggered orders or re-arm targets.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowAlertsPanel(true)}
-            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 text-center shadow-xs"
-          >
-            Manage Alerts
-          </button>
-        </motion.div>
-      )}
-
       {/* Hero Header Section */}
       <div className="relative overflow-hidden bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 rounded-[2.5rem] p-6 md:p-10 shadow-xs">
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -440,36 +418,14 @@ export default function MarketWatchlist() {
           </div>
 
           {/* Quick Metrics Cards & Alert Center Trigger */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-3 shrink-0">
-            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Top Leaders</p>
-              <p className="text-xl font-black text-black dark:text-white mt-0.5">{items.length}</p>
-              <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">Curated Equities</p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0 w-full lg:w-auto">
+            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 min-w-[140px]">
               <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Avg Confidence</p>
               <p className="text-xl font-black text-black dark:text-white mt-0.5">{averageConviction}%</p>
               <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">AI Confidence</p>
             </div>
 
-            {/* Active Price Alerts Card Button */}
-            <button
-              onClick={() => setShowAlertsPanel(true)}
-              className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 hover:border-emerald-500/50 transition-all text-left group cursor-pointer"
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Price Alerts</p>
-                <Bell className={cn("w-3.5 h-3.5 transition-colors", activeAlertsCount > 0 ? "text-emerald-500" : "text-black/30 dark:text-white/30")} />
-              </div>
-              <p className="text-xl font-black text-black dark:text-white mt-0.5">{activeAlertsCount}</p>
-              <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <span>View Alert Hub</span>
-                <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
-              </p>
-            </button>
-
-            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col justify-between">
+            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col justify-between min-w-[140px]">
               <div className="flex items-center justify-between">
                 <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Data Sync</p>
                 <span className="inline-flex items-center gap-1 text-[8px] font-bold text-emerald-600 dark:text-emerald-400">
@@ -492,6 +448,73 @@ export default function MarketWatchlist() {
                 </button>
               </div>
             </div>
+
+            {/* Price Alerts Summary Card - Single Unified Home for Alerts (Aligned on Far Right) */}
+            <button
+              onClick={() => setShowAlertsPanel(true)}
+              className={cn(
+                "p-3.5 rounded-2xl border transition-all text-left group cursor-pointer space-y-1 relative min-w-[140px]",
+                triggeredAlertsCount > 0
+                  ? "bg-amber-50/90 dark:bg-amber-950/30 border-amber-400/80 dark:border-amber-600/60 hover:border-amber-500 shadow-amber-500/5 ring-1 ring-amber-400/30"
+                  : "bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5 hover:border-emerald-500/50"
+              )}
+              title={triggeredAlertsCount > 0 ? "Review triggered price alert milestones" : "Open Price Alerts Center"}
+            >
+              <div className="flex items-center justify-between">
+                <span className={cn(
+                  "text-[9px] font-black uppercase tracking-widest block",
+                  triggeredAlertsCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-black/40 dark:text-white/40"
+                )}>
+                  Price Alerts
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {triggeredAlertsCount > 0 ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      <BellRing className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse fill-amber-500/20" />
+                    </>
+                  ) : (
+                    <Bell className={cn("w-3.5 h-3.5 transition-colors", alerts.length > 0 ? "text-emerald-500 fill-emerald-500/20" : "text-black/30 dark:text-white/30")} />
+                  )}
+                </div>
+              </div>
+
+              <div className="text-xl font-black tracking-tight tabular-nums flex items-baseline gap-1.5 mt-0.5">
+                {triggeredAlertsCount > 0 ? (
+                  <>
+                    <span className="text-amber-900 dark:text-amber-200">{triggeredAlertsCount}</span>
+                    <span className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-tight">Triggered!</span>
+                    <span className="text-[10px] font-semibold text-black/50 dark:text-white/50">
+                      ({activeAlertsCount} active)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-black dark:text-white">{activeAlertsCount}</span>
+                    <span className="text-xs font-bold text-black/40 dark:text-white/40">Active</span>
+                    {alerts.length > 0 && alerts.length !== activeAlertsCount && (
+                      <span className="text-[10px] font-medium text-black/40 dark:text-white/40">
+                        ({alerts.length} total)
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-[9px] font-bold mt-0.5">
+                <span className={cn(
+                  triggeredAlertsCount > 0 
+                    ? "text-amber-800 dark:text-amber-300 font-black" 
+                    : "text-emerald-600 dark:text-emerald-400"
+                )}>
+                  {triggeredAlertsCount > 0 ? `Review & Re-Arm (${alerts.length})` : `Alerts Hub (${alerts.length})`}
+                </span>
+                <ChevronRight className={cn(
+                  "w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform",
+                  triggeredAlertsCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-600 dark:text-emerald-400"
+                )} />
+              </div>
+            </button>
           </div>
         </div>
       </div>
@@ -585,19 +608,10 @@ export default function MarketWatchlist() {
             {/* View Mode Toggle */}
             <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl">
               <button
-                onClick={() => setViewMode('cards')}
-                className={cn(
-                  "p-1.5 rounded-lg text-xs transition-all cursor-pointer",
-                  viewMode === 'cards'
-                    ? "bg-white dark:bg-[#202020] text-black dark:text-white shadow-xs"
-                    : "text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white"
-                )}
-                title="Cards View"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
+                onClick={() => {
+                  setViewMode('table');
+                  try { localStorage.setItem('watchlist_view_mode', 'table'); } catch {}
+                }}
                 className={cn(
                   "p-1.5 rounded-lg text-xs transition-all cursor-pointer",
                   viewMode === 'table'
@@ -605,8 +619,25 @@ export default function MarketWatchlist() {
                     : "text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white"
                 )}
                 title="Table View"
+                aria-label="Table View"
               >
                 <TableIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('cards');
+                  try { localStorage.setItem('watchlist_view_mode', 'cards'); } catch {}
+                }}
+                className={cn(
+                  "p-1.5 rounded-lg text-xs transition-all cursor-pointer",
+                  viewMode === 'cards'
+                    ? "bg-white dark:bg-[#202020] text-black dark:text-white shadow-xs"
+                    : "text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white"
+                )}
+                title="3-Grid View"
+                aria-label="3-Grid View"
+              >
+                <LayoutGrid className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -716,7 +747,7 @@ export default function MarketWatchlist() {
 
                   {/* Strategy Targets: Clickable to Set Instant Alerts */}
                   <div className="grid grid-cols-2 gap-2.5">
-                    {/* Take Profit Target with quick alert button */}
+                    {/* Take-Profit Target with quick alert button */}
                     <div 
                       onClick={() => handleOpenAlertModal(item, 'TAKE_PROFIT')}
                       className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/30 text-left hover:border-emerald-500 cursor-pointer transition-all group/target relative"
@@ -733,34 +764,40 @@ export default function MarketWatchlist() {
                       </div>
                       <div className="flex items-center justify-between mt-0.5">
                         <p className="text-xs font-black font-mono text-emerald-950 dark:text-emerald-100">
-                          {formatCurrency(item.takeProfit, item.currency)}
+                          {formatCurrency(item.takeProfit, item.currency)} · +{upsidePercent.toFixed(1)}%
                         </p>
                         <Bell className="w-3 h-3 text-emerald-600/60 dark:text-emerald-400/60 group-hover/target:scale-110 group-hover/target:text-emerald-600 transition-transform" />
                       </div>
                     </div>
 
                     {/* Ideal Entry Zone with quick alert button */}
-                    <div 
-                      onClick={() => handleOpenAlertModal(item, 'ENTRY_ZONE')}
-                      className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/30 text-left hover:border-blue-500 cursor-pointer transition-all group/entry relative"
-                      title="Click to set Entry Zone alert"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[8px] font-black uppercase tracking-wider text-blue-800 dark:text-blue-300 flex items-center gap-1">
-                          <Crosshair className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                          Entry Zone
-                        </span>
-                        <span className="text-[8px] font-bold text-blue-700 dark:text-blue-300 font-mono">
-                          1:{item.riskRewardRatio.toFixed(1)} R/R
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <p className="text-xs font-black font-mono text-blue-950 dark:text-blue-100">
-                          {formatCurrency(item.idealEntry, item.currency)}
-                        </p>
-                        <Bell className="w-3 h-3 text-blue-600/60 dark:text-blue-400/60 group-hover/entry:scale-110 group-hover/entry:text-blue-600 transition-transform" />
-                      </div>
-                    </div>
+                    {(() => {
+                      const entryDist = item.currentPrice > 0 ? ((item.idealEntry - item.currentPrice) / item.currentPrice) * 100 : 0;
+                      const entryDistStr = `${entryDist >= 0 ? '+' : '−'}${Math.abs(entryDist).toFixed(1)}%`;
+                      return (
+                        <div 
+                          onClick={() => handleOpenAlertModal(item, 'ENTRY_ZONE')}
+                          className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/30 text-left hover:border-blue-500 cursor-pointer transition-all group/entry relative"
+                          title="Click to set Entry Zone alert"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                              <Crosshair className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                              Entry Zone
+                            </span>
+                            <span className="text-[8px] font-bold text-blue-700 dark:text-blue-300 font-mono">
+                              {item.riskRewardRatio.toFixed(1)}:1 R/R
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between mt-0.5">
+                            <p className="text-xs font-black font-mono text-blue-950 dark:text-blue-100">
+                              {formatCurrency(item.idealEntry, item.currency)} · {entryDistStr}
+                            </p>
+                            <Bell className="w-3 h-3 text-blue-600/60 dark:text-blue-400/60 group-hover/entry:scale-110 group-hover/entry:text-blue-600 transition-transform" />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Core Thesis & Catalysts */}
@@ -791,7 +828,7 @@ export default function MarketWatchlist() {
                     onClick={() => handleQuickAnalyze(item)}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-black text-white dark:bg-white dark:text-black text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all cursor-pointer shadow-xs"
                   >
-                    <span>Analyze Lab</span>
+                    <span>Deep Analysis</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
 
@@ -852,6 +889,8 @@ export default function MarketWatchlist() {
                   const isSaved = savedTickers.has(item.ticker.toUpperCase());
                   const itemAlerts = activeAlertsByTicker[item.ticker.toUpperCase()] || [];
                   const upsidePercent = item.currentPrice > 0 ? ((item.takeProfit - item.currentPrice) / item.currentPrice) * 100 : 0;
+                  const entryDist = item.currentPrice > 0 ? ((item.idealEntry - item.currentPrice) / item.currentPrice) * 100 : 0;
+                  const entryDistStr = `${entryDist >= 0 ? '+' : '−'}${Math.abs(entryDist).toFixed(1)}%`;
 
                   return (
                     <tr key={item.ticker} className="hover:bg-black/[0.015] dark:hover:bg-white/[0.015] transition-colors">
@@ -907,15 +946,15 @@ export default function MarketWatchlist() {
                       </td>
 
                       <td className="py-4 px-4 text-right font-mono font-bold text-black/80 dark:text-white/80">
-                        {formatCurrency(item.idealEntry, item.currency)}
+                        {formatCurrency(item.idealEntry, item.currency)} · {entryDistStr}
                       </td>
 
                       <td className="py-4 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatCurrency(item.takeProfit, item.currency)} (+{upsidePercent.toFixed(1)}%)
+                        {formatCurrency(item.takeProfit, item.currency)} · +{upsidePercent.toFixed(1)}%
                       </td>
 
-                      <td className="py-4 px-4 text-right font-mono font-bold text-black/60 dark:text-white/60">
-                        1:{item.riskRewardRatio.toFixed(1)}
+                      <td className="py-4 px-4 text-right font-mono font-bold text-black/70 dark:text-white/70">
+                        {item.riskRewardRatio.toFixed(1)}:1
                       </td>
 
                       <td className="py-4 px-6 text-right">
@@ -923,7 +962,7 @@ export default function MarketWatchlist() {
                           <button
                             onClick={() => handleQuickAnalyze(item)}
                             className="p-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 transition-all cursor-pointer"
-                            title="Analyze in Lab"
+                            title="Deep Analysis"
                           >
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>

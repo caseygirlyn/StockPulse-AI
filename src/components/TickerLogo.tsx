@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { cn } from '../utils';
-import { resolveTickerLogoUrl, getTickerTheme, getAuthoritativeCompanyName } from '../utils/tickerLogos';
+import { getTickerLogoCandidates, getAuthoritativeCompanyName } from '../utils/tickerLogos';
 
 export interface TickerLogoProps {
   ticker: string;
@@ -9,6 +9,7 @@ export interface TickerLogoProps {
   companyName?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
+  lazy?: boolean;
 }
 
 export default function TickerLogo({
@@ -17,23 +18,62 @@ export default function TickerLogo({
   companyName,
   size = 'md',
   className,
+  lazy = true,
 }: TickerLogoProps) {
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   // Authoritative company name fallback
   const effectiveCompanyName = companyName || getAuthoritativeCompanyName(ticker);
 
-  // Resolved brand URL (prioritizing custom SVGs, domain overrides, and verified favicons)
-  const resolvedUrl = useMemo(() => {
-    return resolveTickerLogoUrl(ticker, logoUrl, effectiveCompanyName);
+  // Ordered candidate URLs (custom SVG -> Google Favicon -> Unavatar)
+  const candidates = useMemo(() => {
+    return getTickerLogoCandidates(ticker, logoUrl, effectiveCompanyName);
   }, [ticker, logoUrl, effectiveCompanyName]);
+
+  const currentUrl = candidates[candidateIndex] || null;
 
   // Reset state when inputs change
   useEffect(() => {
+    setCandidateIndex(0);
     setHasError(false);
     setIsLoaded(false);
-  }, [resolvedUrl, ticker]);
+  }, [ticker, candidates]);
+
+  const handleImageError = () => {
+    if (candidateIndex < candidates.length - 1) {
+      // Try next fallback URL in the candidate chain
+      setCandidateIndex(prev => prev + 1);
+      setIsLoaded(false);
+    } else {
+      // All candidates exhausted, show generic black-and-white fallback
+      setHasError(true);
+    }
+  };
+
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    // Reject pixelated generic globes (Google/services return 16x16 generic globe icons on missing favicons)
+    if (img.naturalWidth <= 20 || img.naturalHeight <= 20) {
+      handleImageError();
+      return;
+    }
+    setIsLoaded(true);
+  };
+
+  // Handle cached image race condition: if browser already cached the image,
+  // the onLoad event might not fire after mount. Also reject pixelated globes.
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete) {
+      if (imgRef.current.naturalWidth > 20 && imgRef.current.naturalHeight > 20) {
+        setIsLoaded(true);
+      } else if (imgRef.current.naturalWidth > 0) {
+        handleImageError();
+      }
+    }
+  }, [currentUrl]);
 
   // Format clean monogram symbol without exchange suffix (e.g., 'VUAG.L' -> 'VUAG', 'BRK.B' -> 'BRK')
   const cleanSymbol = useMemo(() => {
@@ -47,11 +87,6 @@ export default function TickerLogo({
     if (cleanSymbol.length <= 4) return cleanSymbol;
     return cleanSymbol.slice(0, 4);
   }, [cleanSymbol]);
-
-  // Deterministic luxury theme palette based on ticker string
-  const theme = useMemo(() => {
-    return getTickerTheme(cleanSymbol || ticker || 'STOCK');
-  }, [cleanSymbol, ticker]);
 
   // Container dimensions
   const containerSizeClasses = {
@@ -85,36 +120,25 @@ export default function TickerLogo({
     return 'text-sm font-mono font-black tracking-tight';
   }, [monogram.length, size]);
 
-  const showImage = Boolean(resolvedUrl && !hasError);
+  const showImage = Boolean(currentUrl && !hasError);
 
   return (
     <div
       className={cn(
-        'relative rounded-full shrink-0 overflow-hidden select-none flex items-center justify-center shadow-xs transition-transform duration-150',
+        'relative rounded-full shrink-0 overflow-hidden select-none flex items-center justify-center transition-transform duration-150',
         containerSizeClasses,
         className
       )}
       title={effectiveCompanyName || ticker}
     >
-      {/* 1. Generative Fallback Monogram (Rendered as base layer & fallback) */}
+      {/* 1. Generic High-Contrast Black & White Fallback Monogram */}
       <div
-        className={cn(
-          'absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br transition-opacity duration-200',
-          theme.gradient
-        )}
+        className="absolute inset-0 w-full h-full flex items-center justify-center bg-black text-white dark:bg-white dark:text-black transition-opacity duration-200"
       >
-        {/* Specular top sheen / highlight */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-white/5 to-transparent pointer-events-none" />
-
-        {/* Crisp inner ring */}
-        <div className={cn('absolute inset-0 rounded-full ring-1 ring-inset', theme.ring)} />
-
-        {/* Monogram or icon */}
         {monogram ? (
           <span
             className={cn(
-              'relative z-10 leading-none uppercase drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]',
-              theme.text,
+              'relative z-10 leading-none uppercase select-none font-black',
               fontClasses
             )}
           >
@@ -123,26 +147,38 @@ export default function TickerLogo({
         ) : (
           <TrendingUp
             className={cn(
-              'relative z-10 text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]',
+              'relative z-10',
               size === 'sm' ? 'w-3.5 h-3.5' : size === 'md' ? 'w-5 h-5' : 'w-6 h-6'
             )}
           />
         )}
       </div>
 
-      {/* 2. Official Brand Logo Overlay (With smooth fade-in upon successful load) */}
-      {showImage && (
-        <img
-          src={resolvedUrl}
-          alt={ticker}
-          onLoad={() => setIsLoaded(true)}
-          onError={() => setHasError(true)}
+      {/* 2. Solid White Background Layer behind the logo (prevents fallback monogram from bleeding through transparent logos) */}
+      {showImage && currentUrl && (
+        <div
           className={cn(
-            'relative z-20 w-full h-full object-cover rounded-full bg-white dark:bg-zinc-900 transition-opacity duration-200',
+            'absolute inset-0 z-20 w-full h-full rounded-full bg-white transition-opacity duration-200 pointer-events-none',
+            isLoaded ? 'opacity-100' : 'opacity-0'
+          )}
+        />
+      )}
+
+      {/* 3. Official Brand Logo Overlay (With smooth fade-in and multi-source fallback) */}
+      {showImage && currentUrl && (
+        <img
+          ref={imgRef}
+          src={currentUrl}
+          alt={ticker}
+          loading={lazy ? 'lazy' : 'eager'}
+          decoding="async"
+          onLoad={handleImageLoad}
+          onError={handleImageError}
+          className={cn(
+            'relative z-30 w-full h-full object-cover rounded-full bg-white transition-opacity duration-200',
             isLoaded ? 'opacity-100' : 'opacity-0'
           )}
           referrerPolicy="no-referrer"
-          loading="eager"
         />
       )}
     </div>

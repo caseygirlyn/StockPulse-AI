@@ -1,3 +1,5 @@
+import { safeParseResponseJson } from '../utils';
+
 export interface WatchlistItem {
   ticker: string;
   name: string;
@@ -603,10 +605,12 @@ export const TOP_20_RECOMMENDED_STOCKS: WatchlistItem[] = [
 export async function fetchMarketWatchlist(currency: string = 'USD', forceRefresh: boolean = false): Promise<WatchlistItem[]> {
   try {
     const url = `/api/watchlist?currency=${encodeURIComponent(currency)}${forceRefresh ? '&forceRefresh=true' : ''}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
     if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.items) && data.items.length > 0) {
+      const data = await safeParseResponseJson<any>(res);
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
         return data.items;
       }
     }

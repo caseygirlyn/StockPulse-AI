@@ -262,7 +262,12 @@ async function startServer() {
 
   const handleStockRequest = async (req: express.Request, res: express.Response) => {
     try {
-      const tickerParam = (req.params.ticker || (req.params as any)[0] || (req.query.ticker as string) || '').trim();
+      let rawTicker = (req.params.ticker || (req.params as any)[0] || (req.query.ticker as string) || '').replace(/^\/+/, '').trim();
+      try {
+        rawTicker = decodeURIComponent(rawTicker);
+      } catch {}
+      const tickerParam = rawTicker.trim();
+
       if (!tickerParam) {
         return res.status(400).json({ error: 'Ticker symbol is required (e.g. AAPL, NVDA, SSLN.L)' });
       }
@@ -286,7 +291,12 @@ async function startServer() {
 
   const handlePriceRequest = async (req: express.Request, res: express.Response) => {
     try {
-      const tickerParam = (req.params.ticker || (req.params as any)[0] || (req.query.ticker as string) || '').trim();
+      let rawTicker = (req.params.ticker || (req.params as any)[0] || (req.query.ticker as string) || '').replace(/^\/+/, '').trim();
+      try {
+        rawTicker = decodeURIComponent(rawTicker);
+      } catch {}
+      const tickerParam = rawTicker.trim();
+
       if (!tickerParam) {
         return res.status(400).json({ error: 'Ticker symbol is required' });
       }
