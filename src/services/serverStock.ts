@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { getAuthoritativeDomain, resolveTickerLogoUrl, getAuthoritativeCompanyName, KNOWN_TICKER_DOMAINS } from "../utils/tickerLogos.js";
 import { resolveExchangeSchedule } from "../utils/marketHours.js";
+import { computeEarningsTiming } from "../utils/earningsDate.js";
 
 export interface AvwapAthData {
   athPrice: number;
@@ -984,12 +985,20 @@ export function getEarningsEstimates(
   const s = symbol.trim().toUpperCase();
   const cleanTicker = s.replace(/\.[A-Z]+$/, '');
   const entry = AUTHORITATIVE_EARNINGS_MAP[s] || AUTHORITATIVE_EARNINGS_MAP[cleanTicker];
-  if (entry) return entry;
+  if (entry) {
+    const timing = computeEarningsTiming(entry.earningsDate, entry.daysUntilEarnings);
+    return {
+      ...entry,
+      daysUntilEarnings: timing.daysUntil,
+      earningsDate: timing.displayDate
+    };
+  }
 
   if (aiEarnings && aiEarnings.earningsDate && aiEarnings.epsEstimate) {
+    const timing = computeEarningsTiming(aiEarnings.earningsDate, aiEarnings.daysUntilEarnings);
     return {
-      earningsDate: aiEarnings.earningsDate,
-      daysUntilEarnings: aiEarnings.daysUntilEarnings,
+      earningsDate: timing.displayDate,
+      daysUntilEarnings: timing.daysUntil,
       fiscalQuarter: aiEarnings.fiscalQuarter || 'Next Quarter',
       epsEstimate: aiEarnings.epsEstimate,
       epsPriorYear: aiEarnings.epsPriorYear,
@@ -1006,9 +1015,10 @@ export function getEarningsEstimates(
     };
   }
 
+  const timing = computeEarningsTiming('Oct 28, 2026');
   return {
-    earningsDate: 'Oct 28, 2026',
-    daysUntilEarnings: 44,
+    earningsDate: timing.displayDate,
+    daysUntilEarnings: timing.daysUntil,
     fiscalQuarter: 'Q3 Earnings',
     epsEstimate: undefined,
     revenueEstimate: undefined,

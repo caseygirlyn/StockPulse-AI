@@ -4,11 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>StockPulse</title>
-    <meta name="description" content="Real-time AI stock analysis, top 20 recommended market watchlist, and persistent portfolio tracking with technical indicators, anchored VWAP, and cost basis analytics." />
+    <meta name="description" content="Real-time AI stock analysis, top 30 recommended market watchlist, and persistent portfolio tracking with technical indicators, anchored VWAP, and cost basis analytics." />
     <meta property="og:title" content="StockPulse" />
-    <meta property="og:description" content="Real-time AI stock analysis, top 20 recommended market watchlist, and persistent portfolio tracking with technical indicators, anchored VWAP, and cost basis analytics." />
+    <meta property="og:description" content="Real-time AI stock analysis, top 30 recommended market watchlist, and persistent portfolio tracking with technical indicators, anchored VWAP, and cost basis analytics." />
     <script>
       (function() {
+        try {
+          var OriginalWebSocket = window.WebSocket;
+          if (OriginalWebSocket) {
+            var MockWebSocket = function(url, protocols) {
+              var isViteHmr = protocols === 'vite-hmr' || protocols === 'vite-ping' ||
+                (Array.isArray(protocols) && (protocols.indexOf('vite-hmr') !== -1 || protocols.indexOf('vite-ping') !== -1)) ||
+                (typeof url === 'string' && url.indexOf(':24678') !== -1);
+              if (isViteHmr) {
+                return {
+                  url: String(url || ''),
+                  readyState: 1,
+                  OPEN: 1,
+                  CONNECTING: 0,
+                  CLOSING: 2,
+                  CLOSED: 3,
+                  protocol: typeof protocols === 'string' ? protocols : 'vite-hmr',
+                  extensions: '',
+                  bufferedAmount: 0,
+                  binaryType: 'blob',
+                  addEventListener: function() {},
+                  removeEventListener: function() {},
+                  dispatchEvent: function() { return true; },
+                  send: function() {},
+                  close: function() {}
+                };
+              }
+              return protocols !== undefined ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
+            };
+            MockWebSocket.prototype = OriginalWebSocket.prototype;
+            MockWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+            MockWebSocket.OPEN = OriginalWebSocket.OPEN;
+            MockWebSocket.CLOSING = OriginalWebSocket.CLOSING;
+            MockWebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            window.WebSocket = MockWebSocket;
+          }
+        } catch (e) {}
+
         try {
           var saved = localStorage.getItem('theme');
           if (saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {

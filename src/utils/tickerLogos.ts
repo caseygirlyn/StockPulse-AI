@@ -928,6 +928,8 @@ export const KNOWN_TICKER_NAMES: Record<string, string> = {
   'ADBE': 'Adobe Inc.',
   'PLTR': 'Palantir Technologies Inc.',
   'SNOW': 'Snowflake Inc.',
+  'NOW': 'ServiceNow, Inc.',
+  'SHOP': 'Shopify Inc.',
   'PANW': 'Palo Alto Networks, Inc.',
   'CRWD': 'CrowdStrike Holdings, Inc.',
   'NET': 'Cloudflare, Inc.',
@@ -971,6 +973,8 @@ export const KNOWN_TICKER_NAMES: Record<string, string> = {
   // Healthcare
   'LLY': 'Eli Lilly and Company',
   'NVO': 'Novo Nordisk A/S',
+  'ISRG': 'Intuitive Surgical, Inc.',
+  'VRTX': 'Vertex Pharmaceuticals Incorporated',
   'JNJ': 'Johnson & Johnson',
   'UNH': 'UnitedHealth Group Incorporated',
   'ABBV': 'AbbVie Inc.',

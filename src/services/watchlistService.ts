@@ -6,7 +6,7 @@ export interface WatchlistItem {
   sector: 'AI & Semiconductors' | 'Big Tech & Cloud' | 'High-Growth & Fintech' | 'Healthcare & Biotech' | 'Blue Chips & Value';
   categoryTag: string;
   convictionScore: number; // 0 - 100
-  recommendationAction: 'Strong Buy' | 'Buy on Dips' | 'Accumulate' | 'Breakout Watch';
+  recommendationAction: 'Strong Buy' | 'Buy on Dips' | 'Accumulate' | 'Breakout' | 'Breakout Watch';
   currentPrice: number;
   previousClose: number;
   priceChange: number;
@@ -26,7 +26,7 @@ export interface WatchlistItem {
   avwapAthStatus?: 'Above AVWAP' | 'Below AVWAP' | 'At Key Support';
 }
 
-export const TOP_20_RECOMMENDED_STOCKS: WatchlistItem[] = [
+export const TOP_30_RECOMMENDED_STOCKS: WatchlistItem[] = [
   {
     ticker: 'NVDA',
     name: 'NVIDIA Corporation',
@@ -293,7 +293,7 @@ export const TOP_20_RECOMMENDED_STOCKS: WatchlistItem[] = [
     sector: 'High-Growth & Fintech',
     categoryTag: 'Enterprise AI & Defense',
     convictionScore: 93,
-    recommendationAction: 'Breakout Watch',
+    recommendationAction: 'Breakout',
     currentPrice: 32.40,
     previousClose: 31.10,
     priceChange: 1.30,
@@ -599,8 +599,294 @@ export const TOP_20_RECOMMENDED_STOCKS: WatchlistItem[] = [
     thesis: 'Omnichannel consumer powerhouse with inflation-resilient foot traffic and rapidly expanding high-margin digital business units.',
     exchange: 'NYSE',
     avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'NFLX',
+    name: 'Netflix, Inc.',
+    sector: 'Big Tech & Cloud',
+    categoryTag: 'Global Streaming & Ad Tier',
+    convictionScore: 93,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 712.40,
+    previousClose: 698.50,
+    priceChange: 13.90,
+    priceChangePercent: 1.99,
+    currency: 'USD',
+    marketCap: '$305B',
+    peRatio: 38.6,
+    idealEntry: 688.00,
+    stopLoss: 645.00,
+    takeProfit: 850.00,
+    riskRewardRatio: 3.5,
+    trend: 'Bullish',
+    catalysts: [
+      'Ad-supported tier scaling rapidly with high ARPU monetization and live sports events',
+      'Paid sharing enforcement driving sustained double-digit net subscriber additions',
+      'Operating margin expanding above 26%+ with $6B+ annual free cash flow generation'
+    ],
+    thesis: 'Undisputed global streaming winner with pricing power, expanding ad-tech margins, and minimal content capex inflation.',
+    exchange: 'NASDAQ',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'ORCL',
+    name: 'Oracle Corporation',
+    sector: 'Big Tech & Cloud',
+    categoryTag: 'OCI AI Datacenters & DB',
+    convictionScore: 93,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 172.80,
+    previousClose: 169.40,
+    priceChange: 3.40,
+    priceChangePercent: 2.01,
+    currency: 'USD',
+    marketCap: '$477B',
+    peRatio: 31.8,
+    dividendYield: 0.92,
+    idealEntry: 165.00,
+    stopLoss: 154.00,
+    takeProfit: 210.00,
+    riskRewardRatio: 3.4,
+    trend: 'Bullish',
+    catalysts: [
+      'Remaining Performance Obligations (RPO) surging past $99B on sovereign and AI cluster contracts',
+      'Multi-cloud database partnerships with AWS, Azure, and Google Cloud accelerating OCI adoption',
+      'High-bandwidth RDMA GPU superclusters attracting premier frontier AI training workloads'
+    ],
+    thesis: 'Legacy database fortress transformed into a hyperscale AI cloud infrastructure titan with multi-year contracted backlog.',
+    exchange: 'NYSE',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'NOW',
+    name: 'ServiceNow, Inc.',
+    sector: 'High-Growth & Fintech',
+    categoryTag: 'Enterprise Workflow AI',
+    convictionScore: 94,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 928.00,
+    previousClose: 912.50,
+    priceChange: 15.50,
+    priceChangePercent: 1.70,
+    currency: 'USD',
+    marketCap: '$190B',
+    peRatio: 64.5,
+    idealEntry: 895.00,
+    stopLoss: 840.00,
+    takeProfit: 1120.00,
+    riskRewardRatio: 3.6,
+    trend: 'Bullish',
+    catalysts: [
+      'Now Assist generative AI Pro Plus tier fastest-growing product launch in company history',
+      '98%+ enterprise renewal rate across IT, HR, and customer service workflow automation',
+      'Consistent 20%+ subscription revenue growth paired with 31%+ free cash flow margins'
+    ],
+    thesis: 'The central nervous system of modern enterprise IT operations with unmatched seat expansion and AI workflow monetization.',
+    exchange: 'NYSE',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'ARM',
+    name: 'Arm Holdings plc',
+    sector: 'AI & Semiconductors',
+    categoryTag: 'v9 Edge & Datacenter IP',
+    convictionScore: 91,
+    recommendationAction: 'Buy on Dips',
+    currentPrice: 146.50,
+    previousClose: 142.80,
+    priceChange: 3.70,
+    priceChangePercent: 2.59,
+    currency: 'USD',
+    marketCap: '$152B',
+    peRatio: 74.0,
+    idealEntry: 138.00,
+    stopLoss: 126.00,
+    takeProfit: 185.00,
+    riskRewardRatio: 3.5,
+    trend: 'Bullish',
+    catalysts: [
+      'Armv9 architecture commanding double the royalty rates of Armv8 across smartphones and AI PCs',
+      'Datacenter CPU penetration surging via Nvidia Grace, AWS Graviton, and Google Axion chips',
+      'Compute Subsystems (CSS) accelerating time-to-market for custom hyperscaler silicon'
+    ],
+    thesis: 'High-margin semiconductor IP royalty tollbooth capturing every power-efficient edge AI device and cloud CPU deployment.',
+    exchange: 'NASDAQ',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'MU',
+    name: 'Micron Technology, Inc.',
+    sector: 'AI & Semiconductors',
+    categoryTag: 'HBM3E AI Memory Leader',
+    convictionScore: 91,
+    recommendationAction: 'Buy on Dips',
+    currentPrice: 108.40,
+    previousClose: 105.60,
+    priceChange: 2.80,
+    priceChangePercent: 2.65,
+    currency: 'USD',
+    marketCap: '$120B',
+    peRatio: 18.5,
+    dividendYield: 0.42,
+    idealEntry: 102.00,
+    stopLoss: 93.00,
+    takeProfit: 142.00,
+    riskRewardRatio: 3.6,
+    trend: 'Bullish',
+    catalysts: [
+      'HBM3E High-Bandwidth Memory completely sold out through calendar 2025/2026 with pricing locked',
+      '30% lower power consumption advantage on 12-high HBM3E qualified for Nvidia Blackwell platforms',
+      'Structural DRAM supply tightness as wafer capacity shifts toward high-margin AI memory'
+    ],
+    thesis: 'Essential AI memory bottleneck beneficiary trading at a cyclical trough multiple on forward earnings.',
+    exchange: 'NASDAQ',
+    avwapAthStatus: 'At Key Support'
+  },
+  {
+    ticker: 'PANW',
+    name: 'Palo Alto Networks, Inc.',
+    sector: 'High-Growth & Fintech',
+    categoryTag: 'Platformized Cybersecurity',
+    convictionScore: 92,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 368.20,
+    previousClose: 362.10,
+    priceChange: 6.10,
+    priceChangePercent: 1.68,
+    currency: 'USD',
+    marketCap: '$119B',
+    peRatio: 56.4,
+    idealEntry: 352.00,
+    stopLoss: 328.00,
+    takeProfit: 445.00,
+    riskRewardRatio: 3.4,
+    trend: 'Bullish',
+    catalysts: [
+      'Next-Generation Security (NGS) ARR growing 35%+ YoY past $4.5B on enterprise platformization',
+      'Precision AI security suite defending cloud, network, and SOC endpoints in real time',
+      'Industry-leading 37%+ adjusted free cash flow margin profile'
+    ],
+    thesis: 'Best-positioned cybersecurity consolidator replacing point-product vendors with unified Zero Trust and AI SOC platforms.',
+    exchange: 'NASDAQ',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'SHOP',
+    name: 'Shopify Inc.',
+    sector: 'High-Growth & Fintech',
+    categoryTag: 'Global Commerce OS',
+    convictionScore: 91,
+    recommendationAction: 'Breakout',
+    currentPrice: 84.60,
+    previousClose: 82.10,
+    priceChange: 2.50,
+    priceChangePercent: 3.05,
+    currency: 'USD',
+    marketCap: '$109B',
+    peRatio: 58.0,
+    idealEntry: 79.50,
+    stopLoss: 72.50,
+    takeProfit: 110.00,
+    riskRewardRatio: 3.5,
+    trend: 'Bullish',
+    catalysts: [
+      'Gross Merchandise Volume (GMV) growing 22%+ YoY as enterprise brands migrate to Shopify Plus',
+      'Shop Pay penetration crossing 60%+ of payment volume with high-margin B2B commerce expansion',
+      'Asset-light operational discipline driving 20%+ free cash flow margins'
+    ],
+    thesis: 'De facto operating system for modern omnichannel retail and direct-to-consumer commerce with powerful fintech take-rate expansion.',
+    exchange: 'NYSE',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'VRTX',
+    name: 'Vertex Pharmaceuticals Inc.',
+    sector: 'Healthcare & Biotech',
+    categoryTag: 'CF Monopoly & Pain Pipeline',
+    convictionScore: 92,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 478.00,
+    previousClose: 472.40,
+    priceChange: 5.60,
+    priceChangePercent: 1.19,
+    currency: 'USD',
+    marketCap: '$123B',
+    peRatio: 28.4,
+    idealEntry: 462.00,
+    stopLoss: 432.00,
+    takeProfit: 575.00,
+    riskRewardRatio: 3.4,
+    trend: 'Bullish',
+    catalysts: [
+      'Suzetrigine (VX-548) non-opioid acute pain blockbuster launch addressing 80M+ US patients',
+      'Casgevy CRISPR gene-editing therapy commercial ramp and next-gen Alyftrek cystic fibrosis franchise',
+      '$10B+ fortress cash balance funding late-stage kidney disease (inaxaplin) clinical pipeline'
+    ],
+    thesis: 'Rare combination of a cash-generative Cystic Fibrosis monopoly and transformative non-opioid pain & gene-editing catalysts.',
+    exchange: 'NASDAQ',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'UNH',
+    name: 'UnitedHealth Group Inc.',
+    sector: 'Healthcare & Biotech',
+    categoryTag: 'Managed Care & Optum AI',
+    convictionScore: 91,
+    recommendationAction: 'Accumulate',
+    currentPrice: 578.50,
+    previousClose: 573.20,
+    priceChange: 5.30,
+    priceChangePercent: 0.92,
+    currency: 'USD',
+    marketCap: '$531B',
+    peRatio: 20.8,
+    dividendYield: 1.45,
+    idealEntry: 560.00,
+    stopLoss: 530.00,
+    takeProfit: 680.00,
+    riskRewardRatio: 3.2,
+    trend: 'Bullish',
+    catalysts: [
+      'Optum Health and Optum Insight scaling AI-driven claims analytics and value-based care',
+      'Medicare Advantage repricing discipline restoring medical care ratio (MCR) margin trajectory',
+      'Decades-long track record of 13-16% compounding EPS growth and reliable dividend hikes'
+    ],
+    thesis: 'Defensive healthcare compounding machine combining dominant insurance scale with high-growth Optum health technology services.',
+    exchange: 'NYSE',
+    avwapAthStatus: 'Above AVWAP'
+  },
+  {
+    ticker: 'MA',
+    name: 'Mastercard Incorporated',
+    sector: 'Blue Chips & Value',
+    categoryTag: 'Cross-Border Payment Network',
+    convictionScore: 94,
+    recommendationAction: 'Strong Buy',
+    currentPrice: 504.20,
+    previousClose: 499.80,
+    priceChange: 4.40,
+    priceChangePercent: 0.88,
+    currency: 'USD',
+    marketCap: '$463B',
+    peRatio: 34.0,
+    dividendYield: 0.53,
+    idealEntry: 490.00,
+    stopLoss: 462.00,
+    takeProfit: 600.00,
+    riskRewardRatio: 3.5,
+    trend: 'Bullish',
+    catalysts: [
+      'Cross-border travel and international transaction volumes growing 17%+ YoY',
+      'Value-Added Services & Solutions (cyber intelligence, open banking, fraud prevention) expanding 20%+',
+      '58%+ operating margins and aggressive share repurchases compounding per-share intrinsic value'
+    ],
+    thesis: 'High-ROIC global payments rail with superior cross-border exposure and rapid cybersecurity services monetization.',
+    exchange: 'NYSE',
+    avwapAthStatus: 'Above AVWAP'
   }
 ];
+
+export const TOP_20_RECOMMENDED_STOCKS: WatchlistItem[] = TOP_30_RECOMMENDED_STOCKS;
 
 export async function fetchMarketWatchlist(currency: string = 'USD', forceRefresh: boolean = false): Promise<WatchlistItem[]> {
   try {
@@ -617,5 +903,5 @@ export async function fetchMarketWatchlist(currency: string = 'USD', forceRefres
   } catch (err) {
     console.warn('Failed to fetch live watchlist from backend API, using local curated dataset:', err);
   }
-  return TOP_20_RECOMMENDED_STOCKS;
+  return TOP_30_RECOMMENDED_STOCKS;
 }

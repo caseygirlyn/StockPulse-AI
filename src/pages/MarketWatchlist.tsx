@@ -15,7 +15,6 @@ import {
   SlidersHorizontal, 
   LayoutGrid, 
   Table as TableIcon, 
-  ArrowUpDown, 
   Layers, 
   ChevronRight,
   Info,
@@ -30,11 +29,14 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ArrowDownRight,
-  Clock
+  Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  TOP_20_RECOMMENDED_STOCKS, 
+  TOP_30_RECOMMENDED_STOCKS, 
   fetchMarketWatchlist, 
   type WatchlistItem 
 } from '../services/watchlistService';
@@ -54,11 +56,19 @@ import {
 import { cn, formatCurrency } from '../utils';
 
 type SectorFilter = 'All' | 'AI & Semiconductors' | 'Big Tech & Cloud' | 'High-Growth & Fintech' | 'Healthcare & Biotech' | 'Blue Chips & Value';
-type SortOption = 'conviction_desc' | 'change_desc' | 'change_asc' | 'upside_desc' | 'price_desc' | 'price_asc' | 'ticker_asc';
+type SortOption = 
+  | 'conviction_desc' | 'conviction_asc'
+  | 'change_desc' | 'change_asc' 
+  | 'upside_desc' | 'upside_asc' 
+  | 'price_desc' | 'price_asc' 
+  | 'ticker_asc' | 'ticker_desc'
+  | 'action_desc' | 'action_asc'
+  | 'entry_desc' | 'entry_asc'
+  | 'rr_desc' | 'rr_asc';
 
 export default function MarketWatchlist() {
   const navigate = useNavigate();
-  const [items, setItems] = useState<WatchlistItem[]>(TOP_20_RECOMMENDED_STOCKS);
+  const [items, setItems] = useState<WatchlistItem[]>(TOP_30_RECOMMENDED_STOCKS);
   const [loading, setLoading] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   
@@ -79,7 +89,6 @@ export default function MarketWatchlist() {
 
   // Alerts Management State
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
-  const [showAlertsPanel, setShowAlertsPanel] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'alerts_only'>('all');
 
   // Modal State for adding to portfolio
@@ -246,34 +255,103 @@ export default function MarketWatchlist() {
       .sort((a, b) => {
         const upsideA = a.currentPrice > 0 ? ((a.takeProfit - a.currentPrice) / a.currentPrice) * 100 : 0;
         const upsideB = b.currentPrice > 0 ? ((b.takeProfit - b.currentPrice) / b.currentPrice) * 100 : 0;
+        const rrA = a.riskRewardRatio || 2.0;
+        const rrB = b.riskRewardRatio || 2.0;
 
         switch (sortBy) {
           case 'conviction_desc':
             return b.convictionScore - a.convictionScore;
+          case 'conviction_asc':
+            return a.convictionScore - b.convictionScore;
           case 'change_desc':
             return b.priceChangePercent - a.priceChangePercent;
           case 'change_asc':
             return a.priceChangePercent - b.priceChangePercent;
           case 'upside_desc':
             return upsideB - upsideA;
+          case 'upside_asc':
+            return upsideA - upsideB;
           case 'price_desc':
             return b.currentPrice - a.currentPrice;
           case 'price_asc':
             return a.currentPrice - b.currentPrice;
           case 'ticker_asc':
             return a.ticker.localeCompare(b.ticker);
+          case 'ticker_desc':
+            return b.ticker.localeCompare(a.ticker);
+          case 'action_desc':
+            return a.recommendationAction.localeCompare(b.recommendationAction);
+          case 'action_asc':
+            return b.recommendationAction.localeCompare(a.recommendationAction);
+          case 'entry_desc':
+            return b.idealEntry - a.idealEntry;
+          case 'entry_asc':
+            return a.idealEntry - b.idealEntry;
+          case 'rr_desc':
+            return rrB - rrA;
+          case 'rr_asc':
+            return rrA - rrB;
           default:
             return 0;
         }
       });
   }, [items, selectedSector, searchQuery, sortBy, activeTab, activeAlertsByTicker]);
 
+  const handleColumnSort = (colBase: 'ticker' | 'conviction' | 'action' | 'price' | 'change' | 'entry' | 'upside' | 'rr') => {
+    const descKey = `${colBase}_desc` as SortOption;
+    const ascKey = `${colBase}_asc` as SortOption;
+
+    if (sortBy === descKey) {
+      setSortBy(ascKey);
+    } else if (sortBy === ascKey) {
+      setSortBy(descKey);
+    } else {
+      setSortBy(colBase === 'ticker' ? 'ticker_asc' : descKey);
+    }
+  };
+
+  const renderSortHeader = (
+    colBase: 'ticker' | 'conviction' | 'action' | 'price' | 'change' | 'entry' | 'upside' | 'rr',
+    label: string,
+    align: 'left' | 'right' = 'left'
+  ) => {
+    const isDesc = sortBy === `${colBase}_desc`;
+    const isAsc = sortBy === `${colBase}_asc`;
+    const isActive = isDesc || isAsc;
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleColumnSort(colBase)}
+        className={cn(
+          "inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none group py-0.5",
+          align === 'right' ? "justify-end w-full" : "justify-start",
+          isActive 
+            ? "text-emerald-700 dark:text-emerald-400 font-black" 
+            : "text-neutral-800 dark:text-neutral-200 hover:text-black dark:hover:text-white"
+        )}
+        title={`Sort by ${label} (${isActive ? (isDesc ? 'Descending: click for Ascending' : 'Ascending: click for Descending') : 'Click to sort'})`}
+      >
+        <span>{label}</span>
+        {isActive ? (
+          isDesc ? (
+            <ArrowDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          ) : (
+            <ArrowUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          )
+        ) : (
+          <ArrowUpDown className="w-3 h-3 text-neutral-400/60 dark:text-neutral-500/60 group-hover:text-neutral-700 dark:group-hover:text-neutral-200 transition-colors shrink-0" />
+        )}
+      </button>
+    );
+  };
+
   // Modal open for adding to portfolio
   const handleOpenAddModal = (item: WatchlistItem) => {
     setModalItem(item);
     setModalAvgPrice(item.idealEntry ? item.idealEntry.toString() : item.currentPrice.toString());
     setModalShares('10');
-    setModalNotes(`Added from AI Top 20 Watchlist (${item.categoryTag})`);
+    setModalNotes(`Added from AI Top 30 Watchlist (${item.categoryTag})`);
   };
 
   // Modal open for setting price alert
@@ -413,19 +491,19 @@ export default function MarketWatchlist() {
               Market Watchlist
             </h1>
             <p className="text-sm md:text-base font-medium text-black/60 dark:text-white/60 leading-relaxed">
-              Top 20 high-confidence AI stock recommendations, market leaders, and tactical buy targets. Configure real-time price alerts to receive instant notifications when key entry or take-profit targets are touched.
+              Top 30 high-confidence AI stock recommendations, market leaders, and tactical buy targets. Configure real-time price alerts to receive instant notifications when key entry or take-profit targets are touched.
             </p>
           </div>
 
-          {/* Quick Metrics Cards & Alert Center Trigger */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0 w-full lg:w-auto">
-            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 min-w-[140px]">
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-2 gap-3 shrink-0 w-full lg:w-auto">
+            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 min-w-[130px]">
               <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Avg Confidence</p>
               <p className="text-xl font-black text-black dark:text-white mt-0.5">{averageConviction}%</p>
-              <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">AI Confidence</p>
+              <p className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">AI Conviction</p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col justify-between min-w-[140px]">
+            <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col justify-between min-w-[130px]">
               <div className="flex items-center justify-between">
                 <p className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Data Sync</p>
                 <span className="inline-flex items-center gap-1 text-[8px] font-bold text-emerald-600 dark:text-emerald-400">
@@ -448,73 +526,6 @@ export default function MarketWatchlist() {
                 </button>
               </div>
             </div>
-
-            {/* Price Alerts Summary Card - Single Unified Home for Alerts (Aligned on Far Right) */}
-            <button
-              onClick={() => setShowAlertsPanel(true)}
-              className={cn(
-                "p-3.5 rounded-2xl border transition-all text-left group cursor-pointer space-y-1 relative min-w-[140px]",
-                triggeredAlertsCount > 0
-                  ? "bg-amber-50/90 dark:bg-amber-950/30 border-amber-400/80 dark:border-amber-600/60 hover:border-amber-500 shadow-amber-500/5 ring-1 ring-amber-400/30"
-                  : "bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5 hover:border-emerald-500/50"
-              )}
-              title={triggeredAlertsCount > 0 ? "Review triggered price alert milestones" : "Open Price Alerts Center"}
-            >
-              <div className="flex items-center justify-between">
-                <span className={cn(
-                  "text-[9px] font-black uppercase tracking-widest block",
-                  triggeredAlertsCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-black/40 dark:text-white/40"
-                )}>
-                  Price Alerts
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {triggeredAlertsCount > 0 ? (
-                    <>
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                      <BellRing className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse fill-amber-500/20" />
-                    </>
-                  ) : (
-                    <Bell className={cn("w-3.5 h-3.5 transition-colors", alerts.length > 0 ? "text-emerald-500 fill-emerald-500/20" : "text-black/30 dark:text-white/30")} />
-                  )}
-                </div>
-              </div>
-
-              <div className="text-xl font-black tracking-tight tabular-nums flex items-baseline gap-1.5 mt-0.5">
-                {triggeredAlertsCount > 0 ? (
-                  <>
-                    <span className="text-amber-900 dark:text-amber-200">{triggeredAlertsCount}</span>
-                    <span className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-tight">Triggered!</span>
-                    <span className="text-[10px] font-semibold text-black/50 dark:text-white/50">
-                      ({activeAlertsCount} active)
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-black dark:text-white">{activeAlertsCount}</span>
-                    <span className="text-xs font-bold text-black/40 dark:text-white/40">Active</span>
-                    {alerts.length > 0 && alerts.length !== activeAlertsCount && (
-                      <span className="text-[10px] font-medium text-black/40 dark:text-white/40">
-                        ({alerts.length} total)
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between text-[9px] font-bold mt-0.5">
-                <span className={cn(
-                  triggeredAlertsCount > 0 
-                    ? "text-amber-800 dark:text-amber-300 font-black" 
-                    : "text-emerald-600 dark:text-emerald-400"
-                )}>
-                  {triggeredAlertsCount > 0 ? `Review & Re-Arm (${alerts.length})` : `Alerts Hub (${alerts.length})`}
-                </span>
-                <ChevronRight className={cn(
-                  "w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform",
-                  triggeredAlertsCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-600 dark:text-emerald-400"
-                )} />
-              </div>
-            </button>
           </div>
         </div>
       </div>
@@ -595,13 +606,17 @@ export default function MarketWatchlist() {
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
                 className="bg-black/5 dark:bg-white/5 border-none rounded-xl px-3 py-2 text-xs font-bold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
               >
-                <option value="conviction_desc">Highest Confidence</option>
+                <option value="conviction_desc">AI Confidence (High to Low)</option>
+                <option value="conviction_asc">AI Confidence (Low to High)</option>
                 <option value="upside_desc">Highest Upside Target</option>
+                <option value="upside_asc">Lowest Upside Target</option>
                 <option value="change_desc">Top Daily Gainers</option>
                 <option value="change_asc">Top Daily Dips</option>
                 <option value="price_desc">Price (High to Low)</option>
                 <option value="price_asc">Price (Low to High)</option>
-                <option value="ticker_asc">Ticker (A-Z)</option>
+                <option value="rr_desc">Highest Risk/Reward</option>
+                <option value="ticker_asc">Ticker (A–Z)</option>
+                <option value="ticker_desc">Ticker (Z–A)</option>
               </select>
             </div>
 
@@ -871,17 +886,19 @@ export default function MarketWatchlist() {
         <div className="bg-white dark:bg-[#121212] border border-neutral-200/80 dark:border-neutral-800 rounded-2xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/5 dark:border-white/5 text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
+              <thead className="bg-neutral-100/90 dark:bg-[#1A1A1A] border-b border-neutral-200 dark:border-neutral-800 text-[10px] font-black tracking-wider text-neutral-800 dark:text-neutral-200">
                 <tr>
-                  <th className="py-4 px-6">Asset & Sector</th>
-                  <th className="py-4 px-4">AI Confidence</th>
-                  <th className="py-4 px-4">Action Signal</th>
-                  <th className="py-4 px-4 text-right">Market Price</th>
-                  <th className="py-4 px-4 text-right">Change</th>
-                  <th className="py-4 px-4 text-right">Entry Zone</th>
-                  <th className="py-4 px-4 text-right">Take Profit</th>
-                  <th className="py-4 px-4 text-right">Risk/Reward</th>
-                  <th className="py-4 px-6 text-right">Actions</th>
+                  <th className="py-3.5 px-6 font-black">{renderSortHeader('ticker', 'Asset & Sector', 'left')}</th>
+                  <th className="py-3.5 px-4 font-black">{renderSortHeader('conviction', 'AI Confidence', 'left')}</th>
+                  <th className="py-3.5 px-4 font-black">{renderSortHeader('action', 'Action Signal', 'left')}</th>
+                  <th className="py-3.5 px-4 text-right font-black">{renderSortHeader('price', 'Market Price', 'right')}</th>
+                  <th className="py-3.5 px-4 text-right font-black">{renderSortHeader('change', 'Change', 'right')}</th>
+                  <th className="py-3.5 px-4 text-right font-black">{renderSortHeader('entry', 'Entry Zone', 'right')}</th>
+                  <th className="py-3.5 px-4 text-right font-black">{renderSortHeader('upside', 'Take Profit', 'right')}</th>
+                  <th className="py-3.5 px-4 text-right font-black">{renderSortHeader('rr', 'Risk/Reward', 'right')}</th>
+                  <th className="py-3.5 px-6 text-right font-black text-neutral-800 dark:text-neutral-200 normal-case">
+                    <span className="py-0.5 inline-block">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5 dark:divide-white/5">
@@ -921,15 +938,15 @@ export default function MarketWatchlist() {
                         </span>
                       </td>
 
-                      <td className="py-4 px-4">
+                      <td className="py-4 px-4 whitespace-nowrap">
                         <span className={cn(
-                          "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider",
+                          "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap inline-flex items-center justify-center",
                           item.recommendationAction === 'Strong Buy' ? "bg-emerald-600 text-white" :
                           item.recommendationAction === 'Buy on Dips' ? "bg-blue-600 text-white" :
-                          item.recommendationAction === 'Breakout Watch' ? "bg-amber-500 text-white" :
+                          (item.recommendationAction === 'Breakout' || item.recommendationAction === 'Breakout Watch') ? "bg-amber-500 text-white" :
                           "bg-indigo-600 text-white"
                         )}>
-                          {item.recommendationAction}
+                          {item.recommendationAction === 'Breakout Watch' ? 'Breakout' : item.recommendationAction}
                         </span>
                       </td>
 
@@ -1183,129 +1200,6 @@ export default function MarketWatchlist() {
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Price Alerts Hub Modal / Drawer */}
-      <AnimatePresence>
-        {showAlertsPanel && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-[#141414] border border-black/10 dark:border-white/10 rounded-[2.5rem] p-6 md:p-8 max-w-2xl w-full shadow-2xl space-y-6 relative max-h-[85vh] flex flex-col"
-            >
-              {/* Drawer Header */}
-              <div className="flex items-start justify-between shrink-0">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <BellRing className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                    <h3 className="text-xl font-black tracking-tight text-black dark:text-white">Price Alerts Center</h3>
-                  </div>
-                  <p className="text-xs font-medium text-black/60 dark:text-white/60 mt-1">
-                    Manage active price alerts, review triggered milestones, and track notifications.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setShowAlertsPanel(false)}
-                  className="p-2 rounded-xl bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Alerts List Body */}
-              <div className="overflow-y-auto space-y-3 pr-1 flex-1">
-                {alerts.length === 0 ? (
-                  <div className="p-10 text-center space-y-3 bg-black/[0.02] dark:bg-white/[0.02] rounded-2xl border border-black/5 dark:border-white/5">
-                    <Bell className="w-8 h-8 text-black/20 dark:text-white/20 mx-auto" />
-                    <p className="text-xs font-bold text-black/60 dark:text-white/60">No price alerts configured yet</p>
-                    <p className="text-[11px] text-black/40 dark:text-white/40 max-w-xs mx-auto">
-                      Click the bell icon next to any stock in the Watchlist to create target price notifications.
-                    </p>
-                  </div>
-                ) : (
-                  alerts.map((al) => {
-                    const stock = items.find(i => i.ticker.toUpperCase() === al.ticker.toUpperCase());
-                    const currentPrice = stock ? stock.currentPrice : al.initialPrice;
-                    const distance = ((al.targetPrice - currentPrice) / currentPrice) * 100;
-
-                    return (
-                      <div
-                        key={al.id}
-                        className={cn(
-                          "p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3",
-                          al.triggered
-                            ? "bg-amber-500/10 border-amber-500/30"
-                            : "bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5"
-                        )}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-black text-sm text-black dark:text-white">{al.ticker}</span>
-                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60">
-                              {al.condition === 'ABOVE' ? 'Rise ≥' : 'Drop ≤'} {formatCurrency(al.targetPrice, al.currency)}
-                            </span>
-                            {al.triggered ? (
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-500 text-white flex items-center gap-1">
-                                <Check className="w-2.5 h-2.5" /> Triggered
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                Active
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-[11px] font-medium text-black/60 dark:text-white/60">
-                            Current: <span className="font-mono font-bold text-black dark:text-white">{formatCurrency(currentPrice, al.currency)}</span>
-                            {' • '}
-                            Distance: <span className="font-mono font-bold">{distance >= 0 ? `+${distance.toFixed(1)}%` : `${distance.toFixed(1)}%`}</span>
-                            {al.notes && ` • ${al.notes}`}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                          <button
-                            onClick={() => togglePriceAlertTriggered(al.id)}
-                            className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[10px] font-black uppercase tracking-wider text-black dark:text-white transition-all cursor-pointer"
-                          >
-                            {al.triggered ? 'Re-Arm' : 'Mark Triggered'}
-                          </button>
-                          
-                          <button
-                            onClick={() => {
-                              deletePriceAlert(al.id);
-                              showToast(`Alert for ${al.ticker} deleted`);
-                            }}
-                            className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white transition-all cursor-pointer"
-                            title="Delete Alert"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Drawer Footer */}
-              <div className="pt-4 border-t border-black/5 dark:border-white/5 flex items-center justify-between shrink-0">
-                <span className="text-[11px] font-bold text-black/50 dark:text-white/50">
-                  {alerts.length} Total Alerts ({activeAlertsCount} Active, {triggeredAlertsCount} Triggered)
-                </span>
-                <button
-                  onClick={() => setShowAlertsPanel(false)}
-                  className="px-5 py-2.5 rounded-xl bg-black text-white dark:bg-white dark:text-black text-xs font-black uppercase tracking-wider cursor-pointer"
-                >
-                  Done
-                </button>
-              </div>
             </motion.div>
           </div>
         )}

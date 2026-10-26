@@ -11,7 +11,6 @@ import {
   RefreshCw, 
   BarChart2, 
   DollarSign, 
-  PieChart, 
   Shield, 
   Anchor, 
   ExternalLink,
@@ -30,7 +29,9 @@ import {
   Crosshair,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Wallet,
+  Trophy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -119,8 +120,9 @@ export default function Portfolio() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'gainers' | 'losers' | 'bullish' | 'bearish' | 'alerts_only'>('all');
-  type SortColumn = 'date' | 'gain' | 'costBasis' | 'currentPrice' | 'value' | 'ticker';
+  type FilterType = 'all' | 'buy_strategy' | 'take_profit' | 'hold_strategy' | 'gainers' | 'losers' | 'bullish' | 'bearish' | 'alerts_only';
+  const [filterType, setFilterType] = useState<FilterType>('all');
+  type SortColumn = 'date' | 'gain' | 'costBasis' | 'currentPrice' | 'value' | 'ticker' | 'signal' | 'target';
   type SortDirection = 'asc' | 'desc';
   const [sortBy, setSortBy] = useState<SortColumn>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -135,7 +137,6 @@ export default function Portfolio() {
 
   // Alerts Management State
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
-  const [showAlertsPanel, setShowAlertsPanel] = useState(false);
   const [alertModalItem, setAlertModalItem] = useState<{
     ticker: string;
     name: string;
@@ -529,7 +530,13 @@ export default function Portfolio() {
     let totalMarketValue = 0;
     let validHoldingsWithShares = 0;
     let totalPnl = 0;
-    let bestGainer: { ticker: string; gainPercent: number } | null = null;
+    let bestGainer: { 
+      ticker: string; 
+      gainPercent: number; 
+      name?: string; 
+      dollarGain?: number; 
+      currency?: string; 
+    } | null = null;
     let worstLoser: { ticker: string; gainPercent: number } | null = null;
     let totalUnweightedGainPercent = 0;
     let positionsWithValidCost = 0;
@@ -545,7 +552,13 @@ export default function Portfolio() {
 
       // Only qualify as best gainer if the return is strictly positive
       if (gainPercent > 0 && (!bestGainer || gainPercent > bestGainer.gainPercent)) {
-        bestGainer = { ticker: pos.ticker, gainPercent };
+        bestGainer = { 
+          ticker: pos.ticker, 
+          gainPercent,
+          name: pos.name,
+          dollarGain: (pos.shares && pos.shares > 0) ? (effectivePrice - pos.avgPrice) * pos.shares : undefined,
+          currency: pos.currency || 'USD'
+        };
       }
       if (gainPercent < 0 && (!worstLoser || gainPercent < worstLoser.gainPercent)) {
         worstLoser = { ticker: pos.ticker, gainPercent };
@@ -600,6 +613,21 @@ export default function Portfolio() {
         const act = (pos.recommendationAction || '').toUpperCase();
         return pos.trend === 'Bearish' || act === 'SELL' || act === 'SELL_ALL' || act === 'SELL_PARTIAL' || act === 'AVOID';
       }
+      if (filterType === 'buy_strategy') {
+        const act = (pos.recommendationAction || '').toUpperCase();
+        return act === 'BUY' || act === 'BUY MORE' || act.includes('BUY') || pos.trend === 'Bullish';
+      }
+      if (filterType === 'take_profit') {
+        const act = (pos.recommendationAction || '').toUpperCase();
+        const effectivePrice = pos.currentPrice || pos.lastAnalyzedPrice || pos.avgPrice || 0;
+        const tp = pos.takeProfit || (pos.avgPrice * 1.15);
+        const nearTp = effectivePrice >= (tp * 0.95);
+        return act.includes('SELL') || act === 'SELL_ALL' || act === 'SELL_PARTIAL' || nearTp;
+      }
+      if (filterType === 'hold_strategy') {
+        const act = (pos.recommendationAction || '').toUpperCase();
+        return act === 'HOLD' || pos.trend === 'Neutral' || (!act.includes('BUY') && !act.includes('SELL'));
+      }
       if (filterType === 'alerts_only') {
         return alerts.some(a => a.ticker.toUpperCase() === pos.ticker.toUpperCase());
       }
@@ -624,6 +652,23 @@ export default function Portfolio() {
         diff = gainA - gainB;
       } else if (sortBy === 'value') {
         diff = valA - valB;
+      } else if (sortBy === 'signal') {
+        const getSignalScore = (p: PortfolioPosition) => {
+          const act = (p.recommendationAction || '').toUpperCase();
+          if (act.includes('BUY')) return 4;
+          if (act.includes('HOLD')) return 3;
+          if (act.includes('SELL') || act === 'AVOID') return 1;
+          if (p.trend === 'Bullish') return 4;
+          if (p.trend === 'Neutral') return 3;
+          return 2;
+        };
+        diff = getSignalScore(a) - getSignalScore(b);
+      } else if (sortBy === 'target') {
+        const targetA = a.takeProfit || ((a.currentPrice || a.avgPrice || 0) * 1.15);
+        const targetB = b.takeProfit || ((b.currentPrice || b.avgPrice || 0) * 1.15);
+        const upsideA = priceA > 0 ? ((targetA - priceA) / priceA) * 100 : 0;
+        const upsideB = priceB > 0 ? ((targetB - priceB) / priceB) * 100 : 0;
+        diff = upsideA - upsideB;
       } else if (sortBy === 'ticker') {
         diff = a.ticker.localeCompare(b.ticker);
       } else {
@@ -662,29 +707,34 @@ export default function Portfolio() {
     }
   };
 
-  const renderSortHeader = (column: SortColumn, label: string) => {
+  const renderSortHeader = (
+    column: SortColumn, 
+    label: string,
+    align: 'left' | 'right' = 'left'
+  ) => {
     const isActive = sortBy === column;
     return (
       <button
         type="button"
         onClick={() => handleColumnSort(column)}
         className={cn(
-          "inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none group text-left",
+          "inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none group py-0.5",
+          align === 'right' ? "justify-end w-full" : "justify-start",
           isActive 
-            ? "text-black dark:text-white font-black" 
-            : "text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white"
+            ? "text-emerald-700 dark:text-emerald-400 font-black" 
+            : "text-neutral-800 dark:text-neutral-200 hover:text-black dark:hover:text-white"
         )}
-        title={`Sort by ${label} (${isActive ? (sortDirection === 'desc' ? 'High to Low' : 'Low to High') : 'Click to sort'})`}
+        title={`Sort by ${label} (${isActive ? (sortDirection === 'desc' ? 'High to Low (click for Low to High)' : 'Low to High (click for High to Low)') : 'Click to sort'})`}
       >
         <span>{label}</span>
         {isActive ? (
           sortDirection === 'desc' ? (
-            <ArrowDown className="w-3 h-3 text-emerald-600 dark:text-emerald-400 stroke-[2.5] shrink-0" />
+            <ArrowDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           ) : (
-            <ArrowUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400 stroke-[2.5] shrink-0" />
+            <ArrowUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           )
         ) : (
-          <ArrowUpDown className="w-2.5 h-2.5 opacity-25 group-hover:opacity-75 transition-opacity shrink-0" />
+          <ArrowUpDown className="w-3 h-3 text-neutral-400/60 dark:text-neutral-500/60 group-hover:text-neutral-700 dark:group-hover:text-neutral-200 transition-colors shrink-0" />
         )}
       </button>
     );
@@ -696,23 +746,18 @@ export default function Portfolio() {
         
         {/* Header Title & Top Controls */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 flex items-center justify-center shadow-sm">
-              <PieChart className="w-5 h-5" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl md:text-3xl font-black tracking-tight">Saved Stock Portfolio</h1>
+              {lastRefreshedAt && (
+                <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-black/5 dark:border-white/5">
+                  Synced {format(lastRefreshedAt, 'HH:mm:ss')}
+                </span>
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight">Saved Stock Portfolio</h1>
-                {lastRefreshedAt && (
-                  <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-black/5 dark:border-white/5">
-                    Synced {format(lastRefreshedAt, 'HH:mm:ss')}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-black/50 dark:text-white/50 mt-0.5">
-                Market quotes updated on sync · US real-time, UK & Int'l ~15m delayed per exchange regulations
-              </p>
-            </div>
+            <p className="text-xs text-black/50 dark:text-white/50 mt-0.5">
+              Market quotes updated on sync · US real-time, UK & Int'l ~15m delayed per exchange regulations
+            </p>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -749,147 +794,182 @@ export default function Portfolio() {
 
         {/* Portfolio Summary Overview Banner */}
         <div className={cn(
-          "grid gap-3 md:gap-4",
+          "grid gap-3.5 md:gap-4",
           portfolioSummary.bestGainer 
-            ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" 
-            : "grid-cols-2 sm:grid-cols-2 lg:grid-cols-4"
+            ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" 
+            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
         )}>
-          <div className="bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-black/5 dark:border-white/5 shadow-xs space-y-1">
-            <span className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-              Tracked Positions
-            </span>
-            <div className="text-xl md:text-2xl font-black tracking-tight tabular-nums">
-              {portfolioSummary.totalPositions} <span className="text-xs font-bold text-black/40 dark:text-white/40">Stocks</span>
-            </div>
-            <p className="text-[10px] text-black/40 dark:text-white/40 font-medium">
-              {portfolioSummary.validHoldingsWithShares} with share quantities
-            </p>
-          </div>
-
-          <div className="bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-black/5 dark:border-white/5 shadow-xs space-y-1">
-            <span className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-              Total Portfolio Value
-            </span>
-            <div className="text-xl md:text-2xl font-black tracking-tight text-black dark:text-white tabular-nums">
-              {portfolioSummary.totalMarketValue && portfolioSummary.totalMarketValue > 0 
-                ? formatCurrency(portfolioSummary.totalMarketValue, 'USD')
-                : (positions.length > 0 ? `${positions.length} Monitored` : '—')}
-            </div>
-            <p className="text-[10px] text-black/40 dark:text-white/40 font-medium">
-              Cost basis: {portfolioSummary.totalCostBasis && portfolioSummary.totalCostBasis > 0 ? formatCurrency(portfolioSummary.totalCostBasis, 'USD') : '—'}
-            </p>
-          </div>
-
-          <div className="bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-black/5 dark:border-white/5 shadow-xs space-y-1">
-            <span className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-              Unrealized Profit / Loss
-            </span>
-            <div className={cn(
-              "text-xl md:text-2xl font-black tracking-tight flex items-center gap-1.5 tabular-nums",
-              (portfolioSummary.totalCostBasis > 0 ? portfolioSummary.totalPnl >= 0 : portfolioSummary.avgHoldingGainPercent >= 0)
-                ? "text-emerald-600 dark:text-emerald-400" 
-                : "text-red-500"
-            )}>
-              {(portfolioSummary.totalCostBasis > 0 ? portfolioSummary.totalPnl >= 0 : portfolioSummary.avgHoldingGainPercent >= 0) 
-                ? <TrendingUp className="w-5 h-5 shrink-0" /> 
-                : <TrendingDown className="w-5 h-5 shrink-0" />}
-              {portfolioSummary.totalCostBasis > 0 
-                ? `${portfolioSummary.totalPnl >= 0 ? '+' : ''}${formatCurrency(portfolioSummary.totalPnl, 'USD')}`
-                : `${portfolioSummary.avgHoldingGainPercent >= 0 ? '+' : ''}${portfolioSummary.avgHoldingGainPercent.toFixed(2)}%`}
-            </div>
-            <p className={cn(
-              "text-[10px] font-bold",
-              (portfolioSummary.totalCostBasis > 0 ? portfolioSummary.totalPnlPercent >= 0 : portfolioSummary.avgHoldingGainPercent >= 0)
-                ? "text-emerald-600 dark:text-emerald-400" 
-                : "text-red-500"
-            )}>
-              {portfolioSummary.totalCostBasis > 0 
-                ? `${portfolioSummary.totalPnlPercent >= 0 ? '+' : ''}${portfolioSummary.totalPnlPercent.toFixed(2)}% Overall` 
-                : 'Tracking Cost Basis'}
-            </p>
-          </div>
-
-          {portfolioSummary.bestGainer && (
-            <div className="bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-black/5 dark:border-white/5 shadow-xs space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40 block">
-                Top Gainer
+          {/* 1. Tracked Positions */}
+          <div className="relative overflow-hidden bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-all group flex flex-col justify-between">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                Tracked Positions
               </span>
-              <div className="text-xl md:text-2xl font-black tracking-tight text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                <span>{portfolioSummary.bestGainer.ticker}</span>
-                <span className="text-sm font-bold tabular-nums">
-                  +{portfolioSummary.bestGainer.gainPercent.toFixed(1)}%
+              <div className="w-7 h-7 rounded-lg bg-neutral-100 dark:bg-neutral-800/80 flex items-center justify-center text-neutral-600 dark:text-neutral-300 border border-neutral-200/50 dark:border-neutral-700/50">
+                <Layers className="w-3.5 h-3.5" />
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <div className="text-2xl md:text-3xl font-black tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 flex items-baseline gap-1.5">
+                <span>{portfolioSummary.totalPositions}</span>
+                <span className="text-xs font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-normal">
+                  {portfolioSummary.totalPositions === 1 ? 'Stock' : 'Stocks'}
                 </span>
               </div>
-              <p className="text-[10px] text-black/40 dark:text-white/40 font-medium">Best performing cost basis</p>
-            </div>
-          )}
-
-          {/* Price Alerts Summary Card - Single Unified Home for Alerts */}
-          <div 
-            onClick={() => setShowAlertsPanel(true)}
-            className={cn(
-              "p-4 md:p-5 rounded-2xl border shadow-xs cursor-pointer transition-all group space-y-1 relative",
-              triggeredAlertsCount > 0
-                ? "bg-amber-50/90 dark:bg-amber-950/30 border-amber-400/80 dark:border-amber-600/60 hover:border-amber-500 shadow-amber-500/5 ring-1 ring-amber-400/30"
-                : "bg-white dark:bg-[#141414] border-black/5 dark:border-white/5 hover:border-black/20 dark:hover:border-white/20"
-            )}
-            title={triggeredAlertsCount > 0 ? "Review triggered price alert milestones" : "Open Price Alerts Center"}
-          >
-            <div className="flex items-center justify-between">
-              <span className={cn(
-                "text-[9px] font-black uppercase tracking-widest block",
-                triggeredAlertsCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-black/40 dark:text-white/40"
-              )}>
-                Price Alerts
-              </span>
-              <div className="flex items-center gap-1.5">
-                {triggeredAlertsCount > 0 ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                    <BellRing className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse fill-amber-500/20" />
-                  </>
-                ) : (
-                  <Bell className={cn("w-3.5 h-3.5 transition-colors", alerts.length > 0 ? "text-emerald-500 fill-emerald-500/20" : "text-black/30 dark:text-white/30")} />
+              <div className="flex items-center gap-2 pt-0.5 text-[10px] text-neutral-500 dark:text-neutral-400 font-medium">
+                <span className="inline-flex items-center gap-1 font-semibold text-neutral-700 dark:text-neutral-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                  {portfolioSummary.validHoldingsWithShares} with shares
+                </span>
+                {portfolioSummary.totalPositions > portfolioSummary.validHoldingsWithShares && (
+                  <span className="text-neutral-400 dark:text-neutral-500">
+                    • {portfolioSummary.totalPositions - portfolioSummary.validHoldingsWithShares} watchlist
+                  </span>
                 )}
               </div>
             </div>
+          </div>
 
-            <div className="text-xl md:text-2xl font-black tracking-tight tabular-nums flex items-baseline gap-1.5">
-              {triggeredAlertsCount > 0 ? (
-                <>
-                  <span className="text-amber-900 dark:text-amber-200">{triggeredAlertsCount}</span>
-                  <span className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-tight">Triggered!</span>
-                  <span className="text-[10px] font-semibold text-black/50 dark:text-white/50">
-                    ({activeAlertsCount} active)
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-black dark:text-white">{activeAlertsCount}</span>
-                  <span className="text-xs font-bold text-black/40 dark:text-white/40">Active</span>
-                  {alerts.length > 0 && alerts.length !== activeAlertsCount && (
-                    <span className="text-[10px] font-medium text-black/40 dark:text-white/40">
-                      ({alerts.length} total)
-                    </span>
-                  )}
-                </>
-              )}
+          {/* 2. Total Portfolio Value */}
+          <div className="relative overflow-hidden bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-all group flex flex-col justify-between">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                Total Portfolio Value
+              </span>
+              <div className="w-7 h-7 rounded-lg bg-blue-500/10 dark:bg-blue-500/15 flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                <Wallet className="w-3.5 h-3.5" />
+              </div>
             </div>
 
-            <div className="flex items-center justify-between text-[10px] font-bold mt-0.5">
-              <span className={cn(
-                triggeredAlertsCount > 0 
-                  ? "text-amber-800 dark:text-amber-300 font-black" 
-                  : "text-emerald-600 dark:text-emerald-400"
-              )}>
-                {triggeredAlertsCount > 0 ? `Review & Re-Arm (${alerts.length})` : `Alerts Hub (${alerts.length})`}
-              </span>
-              <ChevronRight className={cn(
-                "w-3 h-3 group-hover:translate-x-0.5 transition-transform",
-                triggeredAlertsCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-600 dark:text-emerald-400"
-              )} />
+            <div className="space-y-1">
+              <div className="text-2xl md:text-3xl font-black tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100">
+                {portfolioSummary.totalMarketValue && portfolioSummary.totalMarketValue > 0 
+                  ? formatCurrency(portfolioSummary.totalMarketValue, 'USD')
+                  : (positions.length > 0 ? `${positions.length} Monitored` : '—')}
+              </div>
+              <div className="flex items-center gap-2 pt-0.5 text-[10px] text-neutral-500 dark:text-neutral-400 font-medium">
+                {portfolioSummary.totalCostBasis && portfolioSummary.totalCostBasis > 0 ? (
+                  <>
+                    <span>Cost: <span className="font-semibold text-neutral-700 dark:text-neutral-300 font-mono">{formatCurrency(portfolioSummary.totalCostBasis, 'USD')}</span></span>
+                    {portfolioSummary.totalMarketValue > 0 && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                        {((portfolioSummary.totalMarketValue / portfolioSummary.totalCostBasis) * 100).toFixed(0)}% of cost
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span>Cost basis: —</span>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* 3. Unrealized Profit / Loss */}
+          <div className={cn(
+            "relative overflow-hidden bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border shadow-xs transition-all group flex flex-col justify-between",
+            portfolioSummary.totalCostBasis > 0 || portfolioSummary.avgHoldingGainPercent !== 0
+              ? (portfolioSummary.totalCostBasis > 0 ? portfolioSummary.totalPnl >= 0 : portfolioSummary.avgHoldingGainPercent >= 0)
+                ? "border-emerald-200/80 dark:border-emerald-900/40 hover:border-emerald-300 dark:hover:border-emerald-800"
+                : "border-rose-200/80 dark:border-rose-900/40 hover:border-rose-300 dark:hover:border-rose-800"
+              : "border-neutral-200/80 dark:border-neutral-800/80 hover:border-neutral-300 dark:hover:border-neutral-700"
+          )}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                Unrealized Profit / Loss
+              </span>
+              {(() => {
+                const isProfitable = portfolioSummary.totalCostBasis > 0 
+                  ? portfolioSummary.totalPnl >= 0 
+                  : portfolioSummary.avgHoldingGainPercent >= 0;
+                return (
+                  <div className={cn(
+                    "w-7 h-7 rounded-lg flex items-center justify-center border",
+                    isProfitable 
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                  )}>
+                    {isProfitable ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="space-y-1">
+              {(() => {
+                const isProfitable = portfolioSummary.totalCostBasis > 0 
+                  ? portfolioSummary.totalPnl >= 0 
+                  : portfolioSummary.avgHoldingGainPercent >= 0;
+                return (
+                  <>
+                    <div className={cn(
+                      "text-2xl md:text-3xl font-black tracking-tight tabular-nums flex items-center gap-1",
+                      isProfitable ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                    )}>
+                      {isProfitable ? <ArrowUpRight className="w-5 h-5 shrink-0" /> : <ArrowDownRight className="w-5 h-5 shrink-0" />}
+                      <span>
+                        {portfolioSummary.totalCostBasis > 0 
+                          ? `${portfolioSummary.totalPnl >= 0 ? '+' : ''}${formatCurrency(portfolioSummary.totalPnl, 'USD')}`
+                          : `${portfolioSummary.avgHoldingGainPercent >= 0 ? '+' : ''}${portfolioSummary.avgHoldingGainPercent.toFixed(2)}%`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className={cn(
+                        "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold font-mono",
+                        isProfitable
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                      )}>
+                        {portfolioSummary.totalCostBasis > 0 
+                          ? `${portfolioSummary.totalPnlPercent >= 0 ? '+' : ''}${portfolioSummary.totalPnlPercent.toFixed(2)}% Overall` 
+                          : 'Tracking Cost Basis'}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* 4. Top Gainer */}
+          {portfolioSummary.bestGainer && (
+            <div className="relative overflow-hidden bg-white dark:bg-[#141414] p-4 md:p-5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-all group flex flex-col justify-between">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                  Top Gainer
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <Trophy className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-xl md:text-2xl font-black tracking-tight text-neutral-900 dark:text-neutral-100 truncate">
+                      {portfolioSummary.bestGainer.ticker}
+                    </span>
+                    {portfolioSummary.bestGainer.name && (
+                      <span className="text-[10px] text-neutral-400 dark:text-neutral-500 font-semibold truncate max-w-[80px] hidden sm:inline" title={portfolioSummary.bestGainer.name}>
+                        {portfolioSummary.bestGainer.name}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-sm md:text-base font-black font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg shrink-0">
+                    +{portfolioSummary.bestGainer.gainPercent.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium pt-0.5 flex items-center justify-between">
+                  <span>Best performing position</span>
+                  {portfolioSummary.bestGainer.dollarGain && portfolioSummary.bestGainer.dollarGain > 0 && (
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                      +{formatCurrency(portfolioSummary.bestGainer.dollarGain, portfolioSummary.bestGainer.currency || 'USD')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Search, Filters & View Switcher Bar */}
@@ -914,26 +994,32 @@ export default function Portfolio() {
               )}
             </div>
 
-            {/* Filter Pills */}
+            {/* Filter Pills with Strategy Categorization */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
-              {(['all', 'gainers', 'losers', 'bullish', 'bearish', 'alerts_only'] as const).map(tab => {
+              {([
+                { id: 'all', label: 'All' },
+                { id: 'buy_strategy', label: 'Buy / Add' },
+                { id: 'take_profit', label: 'Take Profit' },
+                { id: 'hold_strategy', label: 'Hold' },
+                { id: 'gainers', label: 'Gainers' },
+                { id: 'losers', label: 'Losers' },
+                { id: 'alerts_only', label: 'With Alerts' },
+              ] as const).map(tab => {
                 const countWithAlerts = positions.filter(p => alerts.some(a => a.ticker.toUpperCase() === p.ticker.toUpperCase())).length;
                 return (
                   <button
-                    key={tab}
-                    onClick={() => setFilterType(tab)}
+                    key={tab.id}
+                    onClick={() => setFilterType(tab.id)}
                     className={cn(
                       "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer flex items-center gap-1",
-                      filterType === tab
+                      filterType === tab.id
                         ? "bg-black dark:bg-white text-white dark:text-black shadow-xs"
                         : "bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60 hover:bg-black/10 dark:hover:bg-white/10"
                     )}
                   >
-                    {tab === 'alerts_only' && <Bell className={cn("w-3 h-3", alerts.length > 0 && "fill-amber-500 text-amber-500")} />}
+                    {tab.id === 'alerts_only' && <Bell className={cn("w-3 h-3", alerts.length > 0 && "fill-amber-500 text-amber-500")} />}
                     <span>
-                      {tab === 'all' ? 'All' :
-                       tab === 'alerts_only' ? `With Alerts (${countWithAlerts})` :
-                       tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      {tab.id === 'alerts_only' ? `With Alerts (${countWithAlerts})` : tab.label}
                     </span>
                   </button>
                 );
@@ -958,6 +1044,8 @@ export default function Portfolio() {
                 <option value="costBasis">Cost Basis</option>
                 <option value="currentPrice">Current Price</option>
                 <option value="value">Position Value</option>
+                <option value="signal">Signals (Buy to Sell)</option>
+                <option value="target">Target Upside</option>
                 <option value="ticker">Ticker (A-Z)</option>
               </select>
               <button
@@ -1028,9 +1116,15 @@ export default function Portfolio() {
               <h3 className="text-xl md:text-2xl font-black tracking-tight mb-2">
                 {filterType === 'alerts_only' 
                   ? 'No Price Alerts Set on Portfolio Positions'
-                  : searchQuery || filterType !== 'all' 
-                    ? 'No Matching Positions' 
-                    : 'Your Portfolio is Empty'}
+                  : filterType === 'buy_strategy'
+                    ? 'No Positions with Buy / Add Strategy'
+                    : filterType === 'take_profit'
+                      ? 'No Positions with Take Profit / Trim Strategy'
+                      : filterType === 'hold_strategy'
+                        ? 'No Positions with Hold Strategy'
+                        : searchQuery || filterType !== 'all' 
+                          ? 'No Matching Positions' 
+                          : 'Your Portfolio is Empty'}
               </h3>
               <p className="text-xs md:text-sm text-black/50 dark:text-white/50 leading-relaxed max-w-md mx-auto">
                 {filterType === 'alerts_only'
@@ -1382,28 +1476,35 @@ export default function Portfolio() {
           </div>
         ) : (
           /* TABLE VIEW */
-          <div className="bg-white dark:bg-[#141414] rounded-2xl border border-black/5 dark:border-white/5 shadow-xs overflow-hidden">
+          <div className="bg-white dark:bg-[#121212] border border-neutral-200/80 dark:border-neutral-800 rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/5 dark:border-white/5 text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
-                    <th className="px-5 py-4">
-                      {renderSortHeader('ticker', 'Ticker / Asset')}
+              <table className="w-full text-left text-xs">
+                <thead className="bg-neutral-100/90 dark:bg-[#1A1A1A] border-b border-neutral-200 dark:border-neutral-800 text-[10px] font-black tracking-wider text-neutral-800 dark:text-neutral-200">
+                  <tr>
+                    <th className="py-3.5 px-6 font-black">
+                      {renderSortHeader('ticker', 'Ticker / Asset', 'left')}
                     </th>
-                    <th className="px-5 py-4">
-                      {renderSortHeader('costBasis', 'Cost Basis')}
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('costBasis', 'Cost Basis', 'left')}
                     </th>
-                    <th className="px-5 py-4">
-                      {renderSortHeader('currentPrice', 'Current Price')}
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('currentPrice', 'Current Price', 'left')}
                     </th>
-                    <th className="px-5 py-4">
-                      {renderSortHeader('gain', 'Unrealized P/L')}
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('gain', 'Unrealized P/L', 'left')}
                     </th>
-                    <th className="px-5 py-4">
-                      {renderSortHeader('value', 'Position Value')}
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('value', 'Position Value', 'left')}
                     </th>
-                    <th className="px-5 py-4">Signals & Strategy</th>
-                    <th className="px-5 py-4 text-right">Actions</th>
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('signal', 'Signals', 'left')}
+                    </th>
+                    <th className="py-3.5 px-4 font-black">
+                      {renderSortHeader('target', 'Strategy Targets', 'left')}
+                    </th>
+                    <th className="py-3.5 px-6 text-right font-black text-neutral-800 dark:text-neutral-200 normal-case">
+                      <span className="py-0.5 inline-block">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 dark:divide-white/5">
@@ -1417,8 +1518,8 @@ export default function Portfolio() {
                     const itemAlerts = alerts.filter(a => a.ticker.toUpperCase() === pos.ticker.toUpperCase());
 
                     return (
-                      <tr key={pos.ticker} className="hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors group">
-                        <td className="px-5 py-4">
+                      <tr key={pos.ticker} className="hover:bg-black/[0.015] dark:hover:bg-white/[0.015] transition-colors group">
+                        <td className="py-4 px-6">
                           <div className="flex items-center gap-2.5">
                             <TickerLogo ticker={pos.ticker} logoUrl={pos.logoUrl} companyName={pos.name} size="sm" />
                             <div className="min-w-0">
@@ -1446,7 +1547,7 @@ export default function Portfolio() {
                           </div>
                         </td>
 
-                        <td className="px-5 py-4 font-mono font-bold">
+                        <td className="py-4 px-4 font-mono font-bold">
                           <div>{formatCurrency(pos.avgPrice, pos.currency || 'USD')}</div>
                           {Boolean(pos.shares && pos.shares > 0) && (
                             <div className="text-[9px] text-black/40 dark:text-white/40 font-sans">
@@ -1458,7 +1559,7 @@ export default function Portfolio() {
                           </span>
                         </td>
 
-                        <td className="px-5 py-4 font-mono font-black">
+                        <td className="py-4 px-4 font-mono font-black">
                           <div>{formatCurrency(currentPrice, pos.currency || 'USD')}</div>
                           {(() => {
                             const feedInfo = getExchangeDelayLabel(pos.ticker, pos.exchange);
@@ -1473,7 +1574,7 @@ export default function Portfolio() {
                           })()}
                         </td>
 
-                        <td className="px-5 py-4 font-mono font-black">
+                        <td className="py-4 px-4 font-mono font-black">
                           <div className={cn(
                             "flex items-center gap-1",
                             isProfit ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
@@ -1488,7 +1589,7 @@ export default function Portfolio() {
                           )}
                         </td>
 
-                        <td className="px-5 py-4 font-mono font-black">
+                        <td className="py-4 px-4 font-mono font-black">
                           {Boolean(pos.shares && pos.shares > 0 && totalVal && totalVal > 0) ? (
                             <div>
                               <span>{formatCurrency(totalVal, pos.currency || 'USD')}</span>
@@ -1501,8 +1602,9 @@ export default function Portfolio() {
                           )}
                         </td>
 
-                        <td className="px-5 py-4">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                        {/* Separate Column 6: Technical & AI Signals */}
+                        <td className="py-4 px-4">
+                          <div className="flex flex-col gap-1 items-start">
                             {pos.trend && (
                               <span className={cn(
                                 "text-[10px] font-bold px-2 py-0.5 rounded-md border",
@@ -1518,7 +1620,7 @@ export default function Portfolio() {
                               if (!badgeInfo) return null;
                               return (
                                 <span className={cn(
-                                  "text-[10px] font-bold px-2 py-0.5 rounded-md",
+                                  "text-[10px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap",
                                   badgeInfo.className
                                 )}>
                                   {badgeInfo.label}
@@ -1526,35 +1628,46 @@ export default function Portfolio() {
                               );
                             })()}
                           </div>
-                          {/* Quick Target Alerts (Consistent with Watchlist) */}
+                        </td>
+
+                        {/* Separate Column 7: Strategy Targets (Take-Profit & Entry Zone) */}
+                        <td className="py-4 px-4">
                           {(() => {
                             const currentPx = currentPrice > 0 ? currentPrice : pos.avgPrice;
                             const calcTakeProfit = pos.takeProfit || Number((currentPx * 1.15).toFixed(2));
                             const calcIdealEntry = pos.idealEntry || Number((currentPx * 0.95).toFixed(2));
+                            const upsidePct = currentPx > 0 ? ((calcTakeProfit - currentPx) / currentPx) * 100 : 0;
+                            const entryDist = currentPx > 0 ? ((calcIdealEntry - currentPx) / currentPx) * 100 : 0;
+                            const entryDistStr = `${entryDist >= 0 ? '+' : '−'}${Math.abs(entryDist).toFixed(1)}%`;
+
                             return (
-                              <div className="flex items-center gap-2 mt-1.5">
+                              <div className="space-y-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenAlertModal(pos, 'TAKE_PROFIT')}
-                                  className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
-                                  title="Click to set Take-Profit alert"
+                                  className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition-colors cursor-pointer group/tp"
+                                  title="Click to configure Take-Profit alert"
                                 >
-                                  <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  <Target className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                   <span>TP: {formatCurrency(calcTakeProfit, pos.currency || 'USD')}</span>
+                                  <span className="text-[9px] font-normal text-emerald-600/80">({upsidePct >= 0 ? '+' : ''}{upsidePct.toFixed(1)}%)</span>
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenAlertModal(pos, 'ENTRY_ZONE')}
-                                  className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
-                                  title="Click to set Entry Zone alert"
+                                  className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors cursor-pointer group/entry block"
+                                  title="Click to configure Entry Zone alert"
                                 >
-                                  <Crosshair className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                                  <Crosshair className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                                   <span>Entry: {formatCurrency(calcIdealEntry, pos.currency || 'USD')}</span>
+                                  <span className="text-[9px] font-normal text-blue-600/80">({entryDistStr})</span>
                                 </button>
                               </div>
                             );
                           })()}
                         </td>
 
-                        <td className="px-5 py-4 text-right">
+                        <td className="py-4 px-6 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => handleAnalyzeStock(pos)}
@@ -2064,131 +2177,6 @@ export default function Portfolio() {
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ======================================================== */}
-      {/* PRICE ALERTS HUB MODAL / DRAWER */}
-      {/* ======================================================== */}
-      <AnimatePresence>
-        {showAlertsPanel && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-[#141414] border border-black/10 dark:border-white/10 rounded-[2.5rem] p-6 md:p-8 max-w-2xl w-full shadow-2xl space-y-6 relative max-h-[85vh] flex flex-col"
-            >
-              {/* Drawer Header */}
-              <div className="flex items-start justify-between shrink-0">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <BellRing className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                    <h3 className="text-xl font-black tracking-tight text-black dark:text-white">Price Alerts Center</h3>
-                  </div>
-                  <p className="text-xs font-medium text-black/60 dark:text-white/60 mt-1">
-                    Manage active price alerts, review triggered milestones, and track notifications for your portfolio.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setShowAlertsPanel(false)}
-                  className="p-2 rounded-xl bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Alerts List Body */}
-              <div className="overflow-y-auto space-y-3 pr-1 flex-1">
-                {alerts.length === 0 ? (
-                  <div className="p-10 text-center space-y-3 bg-black/[0.02] dark:bg-white/[0.02] rounded-2xl border border-black/5 dark:border-white/5">
-                    <Bell className="w-8 h-8 text-black/20 dark:text-white/20 mx-auto" />
-                    <p className="text-xs font-bold text-black/60 dark:text-white/60">No price alerts configured yet</p>
-                    <p className="text-[11px] text-black/40 dark:text-white/40 max-w-xs mx-auto">
-                      Click the bell icon next to any stock in your Portfolio to create target price notifications.
-                    </p>
-                  </div>
-                ) : (
-                  alerts.map((al) => {
-                    const pos = positions.find(p => p.ticker.toUpperCase() === al.ticker.toUpperCase());
-                    const currentPrice = pos?.currentPrice || pos?.lastAnalyzedPrice || al.initialPrice;
-                    const distance = ((al.targetPrice - currentPrice) / currentPrice) * 100;
-
-                    return (
-                      <div
-                        key={al.id}
-                        className={cn(
-                          "p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3",
-                          al.triggered
-                            ? "bg-amber-500/10 border-amber-500/30"
-                            : "bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5"
-                        )}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-black text-sm text-black dark:text-white">{al.ticker}</span>
-                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60">
-                              {al.condition === 'ABOVE' ? 'Rise ≥' : 'Drop ≤'} {formatCurrency(al.targetPrice, al.currency)}
-                            </span>
-                            {al.triggered ? (
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-500 text-white flex items-center gap-1">
-                                <Check className="w-2.5 h-2.5" /> Triggered
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                Active
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-[11px] font-medium text-black/60 dark:text-white/60">
-                            Current: <span className="font-mono font-bold text-black dark:text-white">{formatCurrency(currentPrice, al.currency)}</span>
-                            {' • '}
-                            Distance: <span className="font-mono font-bold">{distance >= 0 ? `+${distance.toFixed(1)}%` : `${distance.toFixed(1)}%`}</span>
-                            {al.notes && ` • ${al.notes}`}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                          <button
-                            onClick={() => togglePriceAlertTriggered(al.id)}
-                            className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[10px] font-black uppercase tracking-wider text-black dark:text-white transition-all cursor-pointer"
-                          >
-                            {al.triggered ? 'Re-Arm' : 'Mark Triggered'}
-                          </button>
-                          
-                          <button
-                            onClick={() => {
-                              deletePriceAlert(al.id);
-                              showToast(`Alert for ${al.ticker} deleted`);
-                            }}
-                            className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white transition-all cursor-pointer"
-                            title="Delete Alert"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Drawer Footer */}
-              <div className="pt-4 border-t border-black/5 dark:border-white/5 flex items-center justify-between shrink-0">
-                <span className="text-[11px] font-bold text-black/50 dark:text-white/50">
-                  {alerts.length} Total Alerts ({activeAlertsCount} Active, {triggeredAlertsCount} Triggered)
-                </span>
-                <button
-                  onClick={() => setShowAlertsPanel(false)}
-                  className="px-5 py-2.5 rounded-xl bg-black text-white dark:bg-white dark:text-black text-xs font-black uppercase tracking-wider cursor-pointer"
-                >
-                  Done
-                </button>
-              </div>
             </motion.div>
           </div>
         )}

@@ -1,6 +1,6 @@
 # 📈 StockPulse AI
 
-**StockPulse AI** is a professional-grade, real-time stock analysis and market intelligence platform. Powered by Google's Gemini models and live financial market feeds, it delivers institutional-level technical analysis, Anchored VWAP indicators, a multi-factor trade decision engine, self-healing persistent portfolio tracking, and disciplined risk-reward execution plans.
+**StockPulse AI** is a professional-grade, real-time stock analysis and market intelligence platform. Powered by Google's Gemini models and live financial market feeds, it delivers institutional-level technical analysis, Anchored VWAP indicators, a multi-factor trade decision engine, an interactive Earnings Calendar with company logos, a curated Top 30 Market Watchlist, and self-healing persistent portfolio tracking.
 
 ![StockPulse AI Demo](https://girlyn.com/images/StockPulseAI.gif)
 
@@ -24,25 +24,31 @@
   - Dynamic active state row highlighting with tone-based color coding (emerald for accumulation, blue for breakout, purple for target reached, rose for stop invalidated, amber for defensive reassess).
 - **Recommendation Thesis & Asymmetry**: Deep qualitative thesis paired with quantitative asymmetry geometry (e.g. Risk-to-Reward ratio, downside risk vs. upside target).
 
-### 🌙 Pre-Market & After-Hours Market Reaction Tracker
-- **Extended-Hours Price Action**: Real-time pre-market and after-hours price quotes, dollar delta, and percentage movement.
-- **Session Range Visualizer**: Tracks the active extended-hours session trading range (Session Low – Session High) alongside after-hours volume.
-- **Market Hours Awareness Engine**: Automatically detects global exchange open/closed states (`REGULAR`, `PRE`, `POST`, `CLOSED`) based on venue timezones (NYSE, NASDAQ, LSE, SIX, Euronext).
-- **Session Reaction Sentiment**: Real-time qualitative assessment of post-earnings or after-hours headline market reactions.
+### 📅 Interactive Earnings Calendar & Catalyst Intelligence
+- **Dedicated Earnings Calendar Page (`/earnings`)**:
+  - **Monthly Calendar View with Ticker Logos**: Interactive monthly calendar grid displaying authoritative company logos directly inside each reporting date cell, subtle emerald selection highlighting, and responsive mobile count badges.
+  - **Chronological List View**: Comprehensive schedule view of all upcoming corporate releases sorted by reporting date.
+  - **Smart Filtering Controls**: Filter earnings releases by **Search Query**, **Sector**, **Report Timing** (**BMO** Before Market Open / **AMC** After Market Close), or toggle **My Portfolio Only** to isolate upcoming catalysts for stocks you own.
+- **Single-Stock Earnings Intelligence (Analysis Dashboard)**:
+  - **Catalyst Countdown**: Live tracking of upcoming earnings report dates and days-until-earnings countdown.
+  - **Consensus Estimates**: Consensus EPS and revenue projections with historical year-over-year (YoY) comparison figures.
+  - **Revision Sentiment & Implied Moves**: Market implied volatility moves (`±%`) for earnings day and analyst consensus revision momentum (`Bullish`, `Neutral`, or `Cautious`).
+  - **Earnings Risk Factor Briefs**: Key operational risks and catalyst watch points highlighted ahead of corporate releases.
 
-### 📅 Earnings Intelligence & Catalyst Calendar
-- **Catalyst Countdown**: Live tracking of upcoming earnings report dates and days-until-earnings countdown.
-- **Consensus Estimates**: Consensus EPS and revenue projections with historical year-over-year (YoY) comparison figures.
-- **Revision Sentiment & Implied Moves**: Market implied volatility moves for earnings day and analyst consensus revision momentum (bullish, neutral, or cautious).
-- **Earnings Risk Factor Briefs**: Key operational risks and catalyst watch points highlighted ahead of corporate releases.
-
-### 📊 Advanced Technicals & Quantitative Charting
-- **ATH Anchored VWAP (Volume Weighted Average Price)**: Calculates dynamic anchored VWAP starting from the asset's All-Time High (ATH) to identify institutional supply/demand equilibriums and dynamic support/resistance zones.
-- **5-Day Moving Average (MA5)**: Real-time calculation and short-term trend indicator showing whether current price action leads or lags immediate momentum.
-- **Interactive Multi-Indicator Charts**: Seamless chronological charts powered by Recharts & D3, plotting live price action, MA5 curves, ATH Anchored VWAP lines, and key support/resistance channels.
+### 🔍 Top 30 Market Watchlist & Opportunities Screener
+- **Curated Top 30 Market Opportunities**: Institutional-grade watchlist covering 30 high-conviction market leaders across global exchanges.
+- **Sector-Specific Filtering**: Instant multi-sector screening (6 leaders per sector) across:
+  - *AI & Semiconductors* (`NVDA`, `AVGO`, `AMD`, `TSM`, `ASML`, `ARM`)
+  - *Big Tech & Cloud* (`MSFT`, `AMZN`, `META`, `GOOGL`, `AAPL`, `ORCL`)
+  - *High-Growth & Fintech* (`PLTR`, `PANW`, `CRWD`, `NOW`, `NFLX`, `V`)
+  - *Healthcare & Biotech* (`LLY`, `ISRG`, `VRTX`, `UNH`, `REGN`, `ABBV`)
+  - *Blue Chips & Value* (`JPM`, `COST`, `BRK-B`, `RR.L`, `CAT`, `GE`)
+- **Flexible View Modes**: Switch between responsive Grid Cards and dense institutional Table view with sorting by AI Conviction Score, 24h Change, Upside Potential, and Price.
+- **Quick-Glance Telemetry**: View 24h performance, upside potential to target prices, and risk-reward ratings at a glance.
+- **One-Click Deep Dive**: Transition instantly from any watchlist card, earnings report card, or portfolio row directly into the full technical deep-dive report.
 
 ### 💼 Resilient & Self-Healing Persistent Portfolio
-- **Bi-Directional Self-Healing Sync**: Dual-layer architecture reconciling browser `localStorage` with server-side `data.json`. Positions survive container reboots, cold starts, and session changes without data loss.
+- **Bi-Directional Self-Healing Sync**: Dual-layer architecture reconciling browser `localStorage` with server-side `data.json`. Positions survive container reboots, cold starts, and session changes without data loss or page-reload interruptions.
 - **Atomic Disk Persistence**: High-reliability file staging utilizing temporary staging files, automatic backups (`.bak`), and atomic file renames to prevent corruption during app updates.
 - **Tombstone Deletion Protection**: Deleted positions are tracked with tombstone identifiers so background syncs never resurrect intentionally deleted tickers.
 - **Actionable AI Badges & Sizing**: Real-time AI execution badges (**AI: Buy**, **AI: Sell Partial [custom %]**, **AI: Sell All**, and **AI: Avoid**) overlaid on holding rows.
@@ -52,27 +58,29 @@
 - **Real-Time Batch Price Updates**: Background polling engine refreshing prices, day deltas, and valuation totals across all open portfolio holdings simultaneously.
 - **Dividend Schedules & Metrics**: Tracks annualized dividend yield, payout rates, and upcoming ex-dividend and payment dates.
 
-### 🔍 Market Watchlist & Opportunities Screener
-- **Curated Top 20 Market Opportunities**: Institutional-grade watchlist covering high-conviction market leaders.
-- **Sector-Specific Filtering**: Instant multi-sector screening across:
-  - *AI & Semiconductors*
-  - *Big Tech & Cloud*
-  - *High-Growth & Fintech*
-  - *Healthcare & Biotech*
-  - *Blue Chips & Value*
-- **Flexible View Modes**: Switch between responsive Grid Cards and dense institutional Table view with sorting by AI Conviction Score, 24h Change, Upside Potential, and Price.
-- **Quick-Glance Telemetry**: View 24h performance, upside potential to target prices, and risk-reward ratings at a glance.
-- **One-Click Deep Dive**: Transition instantly from any watchlist card or portfolio row directly into the full technical deep-dive report.
+### 🌙 Pre-Market & After-Hours Market Reaction Tracker
+- **Extended-Hours Price Action**: Real-time pre-market and after-hours price quotes, dollar delta, and percentage movement.
+- **Session Range Visualizer**: Tracks the active extended-hours session trading range (Session Low – Session High) alongside after-hours volume.
+- **Market Hours Awareness Engine**: Automatically detects global exchange open/closed states (`REGULAR`, `PRE`, `POST`, `CLOSED`) based on venue timezones (NYSE, NASDAQ, LSE, SIX, Euronext).
+- **Session Reaction Sentiment**: Real-time qualitative assessment of post-earnings or after-hours headline market reactions.
+
+### 📊 Advanced Technicals & Quantitative Charting
+- **ATH Anchored VWAP (Volume Weighted Average Price)**: Calculates dynamic anchored VWAP starting from the asset's All-Time High (ATH) to identify institutional supply/demand equilibriums and dynamic support/resistance zones.
+- **5-Day Moving Average (MA5)**: Real-time calculation and short-term trend indicator showing whether current price action leads or lags immediate momentum.
+- **Interactive Multi-Indicator Charts**: Seamless chronological charts powered by Recharts & D3, plotting live price action, MA5 curves, ATH Anchored VWAP lines, and key support/resistance channels.
 
 ### 🔔 Price Alerts & Breakout Triggers
 - **Custom Price Triggers**: Set upper resistance breakout and lower support defense thresholds to monitor critical technical levels.
 - **Proactive Visual Indicators**: Real-time alert notifications and status badges highlighting price violations.
 
-### 🌍 Global Exchange Venues & Multi-Currency
+### 🌍 Global Exchange Venues, Multi-Currency & Responsive UX
 - **Multi-Currency Normalization**: Seamlessly analyze and convert assets in **USD ($)**, **GBP (£)**, and **EUR (€)** with real-time FX rate conversion.
 - **Global Exchange Coverage**: Full support for US venues (NASDAQ, NYSE), UK securities (London Stock Exchange `.L`), and European markets (`.SW`, `.PA`, etc.).
-- **Institutional Dark & Light Themes**: High-contrast dark theme alongside an elegant light theme with persistent preference storage.
-- **Authoritative Company Branding**: Vector and high-resolution logo resolution with elegant monogram fallbacks for global assets.
+- **Responsive Navigation & Theme System**:
+  - Unified navigation bar across **Analysis**, **Watchlist (TOP 30)**, **Portfolio**, and **Earnings** with consistent active/inactive icon color states (emerald green when active, slate grey when inactive).
+  - Adaptive navigation menu that automatically switches to a collapsible hamburger menu on tablet portrait (`< 1024px`) and mobile viewports.
+  - High-contrast dark theme alongside an elegant light theme with persistent preference storage.
+- **Authoritative Company Branding**: Vector and high-resolution logo resolution with clean monogram fallbacks for global assets.
 
 ---
 
@@ -85,7 +93,7 @@ StockPulse AI features a lightweight Express.js backend serving live financial d
 | `/api/stock/:ticker` | `GET` | Full technical analysis, ATH Anchored VWAP, risk-adaptive geometry (`?riskMode=aggressive`), and Gemini market intelligence |
 | `/api/price/:ticker` | `GET` | Fast real-time quote, market status, exchange timezone, and day delta |
 | `/api/prices` | `GET` / `POST` | Batch price & dividend telemetry for multiple tickers simultaneously |
-| `/api/watchlist` | `GET` | Live 20-ticker institutional opportunity feed with 30s in-memory caching |
+| `/api/watchlist` | `GET` | Live 30-ticker institutional opportunity feed with 30s in-memory caching |
 | `/api/portfolio` | `GET` | Fetch all saved portfolio positions from persistent storage |
 | `/api/portfolio` | `POST` | Save or update a portfolio holding with auto-fetching of market details |
 | `/api/portfolio/batch` | `POST` | Atomic batch save/update for multi-position portfolio synchronization |
@@ -97,7 +105,7 @@ StockPulse AI features a lightweight Express.js backend serving live financial d
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite 6
+- **Frontend**: React 19, TypeScript, Vite 6, React Router 7
 - **Styling**: Tailwind CSS v4 (Utility-first)
 - **Animations**: Motion (via `motion/react`)
 - **Charts & Visualizations**: Recharts & D3
@@ -150,12 +158,13 @@ StockPulse AI features a lightweight Express.js backend serving live financial d
 
 ## 📖 Usage Workflow
 
-1. **Analyze a Ticker**: Enter any global stock symbol (e.g. `NVDA`, `AAPL`, `RR.L`, `MSFT`) in the search bar.
-2. **Review Trade Decision**: Check the active trade decision status (**BUY IN ADD ZONE**, **WAIT / HOLD**, etc.), review the 9-factor signals score, and examine the execution ladder levels.
+1. **Analyze a Ticker**: Enter any global stock symbol (e.g. `NVDA`, `AAPL`, `RR.L`, `MSFT`) in the search bar on the **Analysis** page.
+2. **Review Trade Decision**: Check the active trade decision status (**BUY IN ADD ZONE**, **WAIT / HOLD**, etc.), review the 9-factor signal score, and examine the execution ladder levels.
 3. **Inspect Key Levels**: Analyze the **ATH Anchored VWAP**, **MA5**, **Valuation Multiples**, and **Support/Resistance channels**.
 4. **Input Position Context (Optional)**: Provide your average purchase price and share quantity to compute real-time holding gains, cost basis, and total market value.
-5. **Manage Persistent Portfolio**: Save analyzed positions directly to your portfolio. Positions are persistently synced between your browser and the local server storage with automated backup protection.
-6. **Browse Watchlist**: Explore top market opportunities and set price target alerts.
+5. **Manage Persistent Portfolio**: Save analyzed positions directly to your **Portfolio**. Positions are persistently synced between your browser and server storage with automated backup protection.
+6. **Browse Top 30 Watchlist**: Explore the **Watchlist (TOP 30)** across 5 institutional sectors, sort by AI Conviction or Upside Potential, and set custom price alerts.
+7. **Track Upcoming Earnings**: Open the **Earnings** page to inspect upcoming corporate releases in the monthly logo calendar or chronological list view, and click any ticker to launch a full technical analysis.
 
 ---
 

@@ -48,6 +48,7 @@ import TickerLogo from '../components/TickerLogo';
 import { WhatShouldIDoBox } from '../components/WhatShouldIDoBox';
 import { WhyThisRecommendation } from '../components/WhyThisRecommendation';
 import { MarketReactionCard } from '../components/MarketReactionCard';
+import { computeEarningsTiming } from '../utils/earningsDate';
 import MarketHoursGuideModal from '../components/MarketHoursGuideModal';
 import { isExchangeMarketOpen } from '../utils/marketHours';
 import { getAuthoritativeCompanyName } from '../utils/tickerLogos';
@@ -283,7 +284,7 @@ export default function Home() {
   const [avgPrice, setAvgPrice] = useState<string>(initialAvgPrice);
   const [shares, setShares] = useState<string>(initialShares);
   const [currency, setCurrency] = useState(initialCurrency);
-  const [loading, setLoading] = useState(() => Boolean(initialTicker && initialAvgPrice));
+  const [loading, setLoading] = useState(() => Boolean(initialTicker.trim()));
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
@@ -291,6 +292,7 @@ export default function Home() {
   const [savedPortfolio, setSavedPortfolio] = useState<PortfolioPosition[]>([]);
   const [justSavedNotification, setJustSavedNotification] = useState(false);
   const lastAnalyzedKeyRef = useRef<string>('');
+  const hadUrlTickerRef = useRef<boolean>(Boolean(initialTicker.trim()));
 
   const [sentimentFilter, setSentimentFilter] = useState<'all' | 'bullish' | 'neutral' | 'bearish'>('all');
   const [showTimingModal, setShowTimingModal] = useState(false);
@@ -347,10 +349,11 @@ export default function Home() {
       setShowTimingModal(true);
     }
 
-    if (t) {
+    if (t && t.trim()) {
+      hadUrlTickerRef.current = true;
       const ts = searchParams.get('ts') || '';
       const key = `${t.trim().toUpperCase()}-${a}-${s}-${c}-${ts}`;
-      if (lastAnalyzedKeyRef.current === key && data && !error) return;
+      if (lastAnalyzedKeyRef.current === key && !error) return;
       lastAnalyzedKeyRef.current = key;
 
       setTicker(t);
@@ -361,6 +364,12 @@ export default function Home() {
       // Trigger analysis automatically
       const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
       handleSubmit(fakeEvent, { ticker: t, avgPrice: a, shares: s, currency: c });
+    } else if (hadUrlTickerRef.current) {
+      hadUrlTickerRef.current = false;
+      lastAnalyzedKeyRef.current = '';
+      setData(null);
+      setError(null);
+      setLoading(false);
     }
   }, [searchParams]);
 
@@ -636,13 +645,9 @@ export default function Home() {
   return (
     <div className="min-h-screen font-sans selection:bg-emerald-100 transition-colors duration-300">
       <main className="max-w-7xl mx-auto px-4 py-4 md:py-6">
-        <AnimatePresence mode="wait">
-          {!data && !loading && (
-            <motion.div 
+          {!data && !loading && !error && (
+            <div 
               key="landing"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.05 }}
               className="max-w-4xl mx-auto py-4 md:py-6"
             >
               <div className="text-center mb-4 md:mb-6">
@@ -796,40 +801,27 @@ export default function Home() {
                   </div>
                 </form>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {loading && (
-            <motion.div 
+            <div 
               key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center py-32 space-y-8"
             >
               <div className="relative">
-                <motion.div 
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="w-24 h-24 border-4 border-emerald-100 border-t-emerald-600 rounded-full"
+                <div 
+                  className="w-24 h-24 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <BarChart3 className="w-8 h-8 text-emerald-600 animate-pulse" />
                 </div>
               </div>
               <div className="text-center space-y-2">
-                <AnimatePresence mode="wait">
-                  <motion.h3 
-                    key={loadingStep}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="font-black text-2xl tracking-tight"
-                  >
-                    {loadingMessages[loadingStep]}
-                  </motion.h3>
-                </AnimatePresence>
-                <p className="text-black/40 text-sm font-medium">This usually takes about 10-15 seconds</p>
+                <h3 className="font-black text-2xl tracking-tight">
+                  {loadingMessages[loadingStep]}
+                </h3>
+                <p className="text-black/40 dark:text-white/40 text-sm font-medium">This usually takes a few seconds</p>
               </div>
               
               <div className="flex gap-1">
@@ -844,10 +836,7 @@ export default function Home() {
                 ))}
               </div>
 
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1 }}
+              <div 
                 className="max-w-md text-center pt-8 border-t border-black/5 dark:border-white/5"
               >
                 <p className="text-[10px] font-bold text-black/20 dark:text-white/20 uppercase tracking-widest leading-relaxed">
@@ -855,8 +844,8 @@ export default function Home() {
                   AI models can occasionally provide inaccurate data. Always consult with a 
                   professional financial advisor before making investment decisions.
                 </p>
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           )}
 
         {error && (
@@ -1038,7 +1027,15 @@ export default function Home() {
                     <span className="hidden sm:inline text-[10px]">Refresh</span>
                   </button>
                   <button 
-                    onClick={() => setData(null)}
+                    onClick={() => {
+                      lastAnalyzedKeyRef.current = '';
+                      hadUrlTickerRef.current = false;
+                      setError(null);
+                      setData(null);
+                      if (searchParams.get('ticker')) {
+                        navigate('/', { replace: true });
+                      }
+                    }}
                     className="bg-white dark:bg-[#141414] border border-black/5 dark:border-white/5 px-3 md:px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all shadow-sm cursor-pointer"
                   >
                     New
@@ -1728,9 +1725,8 @@ export default function Home() {
                     if (data.isETF) return null;
                     const tickerUpper = (data.ticker || '').trim().toUpperCase();
                     const cleanTicker = tickerUpper.replace(/\.[A-Z]+$/, '');
-                    const earnings = data.earnings || CLIENT_EARNINGS_MAP[tickerUpper] || CLIENT_EARNINGS_MAP[cleanTicker] || {
+                    const rawEarnings = data.earnings || CLIENT_EARNINGS_MAP[tickerUpper] || CLIENT_EARNINGS_MAP[cleanTicker] || {
                       earningsDate: 'Oct 28, 2026',
-                      daysUntilEarnings: 44,
                       fiscalQuarter: 'Q3 Earnings',
                       epsEstimate: '$0.92',
                       epsPriorYear: '$0.70',
@@ -1743,6 +1739,13 @@ export default function Home() {
                       lastQuarterSurprise: '+2.2% EPS beat',
                       consensusRevisions: 'Stable',
                       keyRisk: 'Earnings gap'
+                    };
+
+                    const timing = computeEarningsTiming(rawEarnings.earningsDate, rawEarnings.daysUntilEarnings);
+                    const earnings = {
+                      ...rawEarnings,
+                      daysUntilEarnings: timing.daysUntil,
+                      earningsDate: timing.displayDate
                     };
 
                     const isEstimateValid = (val?: string) => {
@@ -1798,15 +1801,12 @@ export default function Home() {
 
                           {/* Timing Metric Pill */}
                           <div className="px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5 shrink-0">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                            <span className={cn(
+                              "w-1.5 h-1.5 rounded-full shrink-0",
+                              timing.isPast ? "bg-amber-500" : timing.daysUntil <= 7 ? "bg-blue-600 animate-pulse" : "bg-blue-500"
+                            )} />
                             <span className="whitespace-nowrap">
-                              {earnings.daysUntilEarnings !== undefined 
-                                ? (earnings.daysUntilEarnings === 0 
-                                    ? 'Reporting Today' 
-                                    : earnings.daysUntilEarnings === 1 
-                                    ? 'In 1 Day' 
-                                    : `In ${earnings.daysUntilEarnings} Days`)
-                                : (earnings.earningsDate || 'Upcoming')}
+                              {timing.pillText}
                             </span>
                           </div>
                         </div>
@@ -1964,7 +1964,6 @@ export default function Home() {
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
       </main>
 
       {/* Market Timing & Hours Guide Modal */}
