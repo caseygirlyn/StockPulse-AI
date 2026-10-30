@@ -48,7 +48,7 @@ import TickerLogo from '../components/TickerLogo';
 import { WhatShouldIDoBox } from '../components/WhatShouldIDoBox';
 import { WhyThisRecommendation } from '../components/WhyThisRecommendation';
 import { MarketReactionCard } from '../components/MarketReactionCard';
-import { computeEarningsTiming } from '../utils/earningsDate';
+import { computeEarningsTiming, getAuthoritativeEarningsForTicker, isLseTicker } from '../utils/earningsDate';
 import MarketHoursGuideModal from '../components/MarketHoursGuideModal';
 import { isExchangeMarketOpen } from '../utils/marketHours';
 import { getAuthoritativeCompanyName } from '../utils/tickerLogos';
@@ -108,14 +108,14 @@ const CLIENT_EARNINGS_MAP: Record<string, {
   catalystThesis?: string;
 }> = {
   'MU': {
-    earningsDate: 'Sep 25, 2026',
-    daysUntilEarnings: 11,
-    fiscalQuarter: 'Q4 FY26',
+    earningsDate: 'Dec 23, 2026',
+    daysUntilEarnings: 54,
+    fiscalQuarter: 'Q1 FY27',
     epsEstimate: '$1.74',
-    epsPriorYear: '$-0.14',
-    epsGrowthYoY: '+1,342%',
-    revenueEstimate: '$7.65B',
-    revenueGrowthYoY: '+82.4%',
+    epsPriorYear: '$-0.95',
+    epsGrowthYoY: '+283%',
+    revenueEstimate: '$8.70B',
+    revenueGrowthYoY: '+84.0%',
     revisions: '19 Up / 2 Down (30D)',
     revisionsSentiment: 'bullish',
     impliedMove: '±8.5%',
@@ -124,8 +124,8 @@ const CLIENT_EARNINGS_MAP: Record<string, {
     keyRisk: 'HBM memory pricing guidance & margin execution'
   },
   'NVDA': {
-    earningsDate: 'Nov 19, 2026',
-    daysUntilEarnings: 66,
+    earningsDate: 'Nov 17, 2026',
+    daysUntilEarnings: 18,
     fiscalQuarter: 'Q3 FY27',
     epsEstimate: '$0.75',
     epsPriorYear: '$0.40',
@@ -140,24 +140,24 @@ const CLIENT_EARNINGS_MAP: Record<string, {
     keyRisk: 'Blackwell architecture ramp and supply chain capacity'
   },
   'AAPL': {
-    earningsDate: 'Oct 29, 2026',
-    daysUntilEarnings: 45,
+    earningsDate: 'Nov 2, 2026',
+    daysUntilEarnings: 3,
     fiscalQuarter: 'Q4 FY26',
-    epsEstimate: '$1.55',
+    epsEstimate: '$1.60',
     epsPriorYear: '$1.46',
-    epsGrowthYoY: '+6.2%',
-    revenueEstimate: '$94.20B',
-    revenueGrowthYoY: '+5.3%',
-    revisions: '14 Up / 6 Down (30D)',
-    revisionsSentiment: 'neutral',
+    epsGrowthYoY: '+9.6%',
+    revenueEstimate: '$94.50B',
+    revenueGrowthYoY: '+5.6%',
+    revisions: '18 Up / 4 Down (30D)',
+    revisionsSentiment: 'bullish',
     impliedMove: '±4.2%',
     lastQuarterSurprise: '+3.4% EPS beat',
-    consensusRevisions: 'Stable / Balanced (14 Up / 6 Down)',
+    consensusRevisions: 'Positive (18 Up / 4 Down)',
     keyRisk: 'iPhone 17 cycle adoption & Greater China demand'
   },
   'MSFT': {
-    earningsDate: 'Oct 22, 2026',
-    daysUntilEarnings: 38,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 89,
     fiscalQuarter: 'Q1 FY27',
     epsEstimate: '$3.10',
     epsPriorYear: '$2.99',
@@ -172,8 +172,8 @@ const CLIENT_EARNINGS_MAP: Record<string, {
     keyRisk: 'Azure AI cloud capacity & capex payback visibility'
   },
   'GOOGL': {
-    earningsDate: 'Oct 27, 2026',
-    daysUntilEarnings: 43,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 95,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$1.85',
     epsPriorYear: '$1.55',
@@ -188,8 +188,8 @@ const CLIENT_EARNINGS_MAP: Record<string, {
     keyRisk: 'Search monetization transition & DOJ antitrust remedies'
   },
   'GOOG': {
-    earningsDate: 'Oct 27, 2026',
-    daysUntilEarnings: 43,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 95,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$1.85',
     epsPriorYear: '$1.55',
@@ -223,8 +223,8 @@ const CLIENT_EARNINGS_MAP: Record<string, {
     earningsDate: 'Feb 25, 2027',
     daysUntilEarnings: 164,
     fiscalQuarter: 'FY26 Results',
-    epsEstimate: '38.50p',
-    epsPriorYear: '29.55p',
+    epsEstimate: '£0.39',
+    epsPriorYear: '£0.30',
     epsGrowthYoY: '+30.3%',
     revenueEstimate: '£18.20B',
     revenueGrowthYoY: '+18.5%',
@@ -278,7 +278,7 @@ export default function Home() {
   const initialTicker = searchParams.get('ticker') || '';
   const initialAvgPrice = searchParams.get('avgPrice') || '';
   const initialShares = searchParams.get('shares') || '';
-  const initialCurrency = searchParams.get('currency') || 'USD';
+  const initialCurrency = searchParams.get('currency') || (isLseTicker(initialTicker) ? 'GBP' : 'USD');
 
   const [ticker, setTicker] = useState(initialTicker);
   const [avgPrice, setAvgPrice] = useState<string>(initialAvgPrice);
@@ -333,7 +333,11 @@ export default function Home() {
       }
       if (matched.currency) {
         setCurrency(matched.currency);
+      } else if (isLseTicker(clean, matched.exchange)) {
+        setCurrency('GBP');
       }
+    } else if (clean.endsWith('.L')) {
+      setCurrency('GBP');
     }
   };
 
@@ -342,7 +346,7 @@ export default function Home() {
     const t = searchParams.get('ticker');
     const a = searchParams.get('avgPrice') || '';
     const s = searchParams.get('shares') || '';
-    const c = searchParams.get('currency') || 'USD';
+    const c = searchParams.get('currency') || (isLseTicker(t || '') ? 'GBP' : 'USD');
     const guideParam = searchParams.get('guide') || searchParams.get('timing');
 
     if (guideParam === 'timing' || guideParam === 'true' || window.location.hash === '#timing-guide') {
@@ -1725,8 +1729,29 @@ export default function Home() {
                     if (data.isETF) return null;
                     const tickerUpper = (data.ticker || '').trim().toUpperCase();
                     const cleanTicker = tickerUpper.replace(/\.[A-Z]+$/, '');
-                    const rawEarnings = data.earnings || CLIENT_EARNINGS_MAP[tickerUpper] || CLIENT_EARNINGS_MAP[cleanTicker] || {
-                      earningsDate: 'Oct 28, 2026',
+                    const calEvent = getAuthoritativeEarningsForTicker(tickerUpper) || getAuthoritativeEarningsForTicker(cleanTicker);
+                    const calEarnings: (typeof CLIENT_EARNINGS_MAP)[string] | undefined = calEvent ? {
+                      earningsDate: calEvent.date,
+                      fiscalQuarter: calEvent.fiscalQuarter,
+                      epsEstimate: calEvent.epsEstimate,
+                      epsPriorYear: calEvent.epsPriorYear,
+                      epsGrowthYoY: calEvent.epsGrowthYoY,
+                      revenueEstimate: calEvent.revenueEstimate,
+                      revenueGrowthYoY: calEvent.revenueGrowthYoY,
+                      revisions: calEvent.revisions,
+                      revisionsSentiment: calEvent.revisionsSentiment,
+                      impliedMove: calEvent.impliedMove,
+                      lastQuarterSurprise: calEvent.lastQuarterSurprise,
+                      consensusRevisions: calEvent.revisionsSentiment === 'bullish'
+                        ? `Positive (${calEvent.revisions})`
+                        : calEvent.revisionsSentiment === 'bearish'
+                        ? `Downward (${calEvent.revisions})`
+                        : `Stable (${calEvent.revisions})`,
+                      keyRisk: calEvent.keyRisk
+                    } : undefined;
+
+                    const rawEarnings = calEarnings || data.earnings || CLIENT_EARNINGS_MAP[tickerUpper] || CLIENT_EARNINGS_MAP[cleanTicker] || {
+                      earningsDate: 'Nov 18, 2026',
                       fiscalQuarter: 'Q3 Earnings',
                       epsEstimate: '$0.92',
                       epsPriorYear: '$0.70',
@@ -1741,7 +1766,7 @@ export default function Home() {
                       keyRisk: 'Earnings gap'
                     };
 
-                    const timing = computeEarningsTiming(rawEarnings.earningsDate, rawEarnings.daysUntilEarnings);
+                    const timing = computeEarningsTiming(rawEarnings.earningsDate, rawEarnings.daysUntilEarnings, false);
                     const earnings = {
                       ...rawEarnings,
                       daysUntilEarnings: timing.daysUntil,

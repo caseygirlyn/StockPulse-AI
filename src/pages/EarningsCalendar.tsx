@@ -8,17 +8,12 @@ import {
   Sun,
   Moon,
   Zap,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   ArrowUpRight,
-  Filter,
   LayoutGrid,
   List,
   Briefcase,
-  Clock,
-  X,
-  CheckCircle2
+  X
 } from 'lucide-react';
 import {
   format,
@@ -39,765 +34,37 @@ import { motion, AnimatePresence } from 'motion/react';
 import TickerLogo from '../components/TickerLogo';
 import { TOP_20_RECOMMENDED_STOCKS } from '../services/watchlistService';
 import { getLocalPortfolio, fetchPortfolio, type PortfolioPosition } from '../services/portfolioService';
-import { computeEarningsTiming } from '../utils/earningsDate';
+import {
+  EARNINGS_CALENDAR_EVENTS,
+  type EarningsCalendarEvent,
+  computeEarningsTiming,
+  isEtfTicker,
+  isLseTicker,
+  normalizeEarningsTicker,
+  snapToTradingWeekday,
+  formatToIsoDate
+} from '../utils/earningsDate';
 import { cn } from '../utils';
 
-export interface EarningsCalendarEvent {
-  ticker: string;
-  name: string;
-  date: string; // YYYY-MM-DD
-  session: 'BMO' | 'AMC'; // Before Market Open | After Market Close
-  fiscalQuarter: string;
-  epsEstimate: string;
-  epsPriorYear: string;
-  epsGrowthYoY: string;
-  revenueEstimate: string;
-  revenueGrowthYoY: string;
-  impliedMove: string;
-  impliedMoveNumeric: number;
-  revisions: string;
-  revisionsSentiment: 'bullish' | 'neutral' | 'bearish';
-  lastQuarterSurprise: string;
-  keyRisk: string;
-  sector: string;
-  marketCap: string;
-}
-
-export const EARNINGS_CALENDAR_EVENTS: EarningsCalendarEvent[] = [
-  // OCTOBER 2026
-  {
-    ticker: 'JPM',
-    name: 'JPMorgan Chase & Co.',
-    date: '2026-10-13',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$4.18',
-    epsPriorYear: '$4.01',
-    epsGrowthYoY: '+4.2%',
-    revenueEstimate: '$41.90B',
-    revenueGrowthYoY: '+5.1%',
-    impliedMove: '±3.4%',
-    impliedMoveNumeric: 3.4,
-    revisions: '14 Up / 3 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+5.8% EPS beat',
-    keyRisk: 'Net interest income (NII) trajectory & commercial credit provisions',
-    sector: 'Blue Chips & Value',
-    marketCap: '$615B'
-  },
-  {
-    ticker: 'ASML',
-    name: 'ASML Holding N.V.',
-    date: '2026-10-15',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$5.42',
-    epsPriorYear: '$4.81',
-    epsGrowthYoY: '+12.7%',
-    revenueEstimate: '$7.95B',
-    revenueGrowthYoY: '+11.4%',
-    impliedMove: '±6.4%',
-    impliedMoveNumeric: 6.4,
-    revisions: '16 Up / 4 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+4.1% EPS beat',
-    keyRisk: 'High-NA EUV net bookings & China export license restrictions',
-    sector: 'AI & Semiconductors',
-    marketCap: '$360B'
-  },
-  {
-    ticker: 'UNH',
-    name: 'UnitedHealth Group Inc.',
-    date: '2026-10-15',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$7.02',
-    epsPriorYear: '$6.56',
-    epsGrowthYoY: '+7.0%',
-    revenueEstimate: '$99.20B',
-    revenueGrowthYoY: '+7.4%',
-    impliedMove: '±4.6%',
-    impliedMoveNumeric: 4.6,
-    revisions: '14 Up / 4 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+3.1% EPS beat',
-    keyRisk: 'Medical Care Ratio (MCR) trend & Medicare Advantage utilization',
-    sector: 'Healthcare & Biotech',
-    marketCap: '$531B'
-  },
-  {
-    ticker: 'TSM',
-    name: 'Taiwan Semiconductor Mfg.',
-    date: '2026-10-16',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$1.95',
-    epsPriorYear: '$1.29',
-    epsGrowthYoY: '+51.2%',
-    revenueEstimate: '$23.60B',
-    revenueGrowthYoY: '+36.0%',
-    impliedMove: '±6.2%',
-    impliedMoveNumeric: 6.2,
-    revisions: '24 Up / 0 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+8.9% EPS beat',
-    keyRisk: 'CoWoS advanced packaging capacity & N2 node ramp timeline',
-    sector: 'AI & Semiconductors',
-    marketCap: '$925B'
-  },
-  {
-    ticker: 'NFLX',
-    name: 'Netflix, Inc.',
-    date: '2026-10-19',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$5.12',
-    epsPriorYear: '$3.73',
-    epsGrowthYoY: '+37.3%',
-    revenueEstimate: '$9.78B',
-    revenueGrowthYoY: '+14.5%',
-    impliedMove: '±7.4%',
-    impliedMoveNumeric: 7.4,
-    revisions: '20 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+4.8% EPS beat',
-    keyRisk: 'Ad-tier monetization RPM & live sports engagement retention',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$305B'
-  },
-  {
-    ticker: 'SAP',
-    name: 'SAP SE',
-    date: '2026-10-21',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '€1.35',
-    epsPriorYear: '€1.16',
-    epsGrowthYoY: '+16.4%',
-    revenueEstimate: '€8.55B',
-    revenueGrowthYoY: '+9.8%',
-    impliedMove: '±4.5%',
-    impliedMoveNumeric: 4.5,
-    revisions: '18 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+6.8% EPS beat',
-    keyRisk: 'Cloud ERP backlog conversion & European enterprise IT budgets',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$265B'
-  },
-  {
-    ticker: 'TSLA',
-    name: 'Tesla, Inc.',
-    date: '2026-10-21',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$0.58',
-    epsPriorYear: '$0.66',
-    epsGrowthYoY: '-12.1%',
-    revenueEstimate: '$25.40B',
-    revenueGrowthYoY: '+8.9%',
-    impliedMove: '±9.2%',
-    impliedMoveNumeric: 9.2,
-    revisions: '6 Up / 14 Down (30D)',
-    revisionsSentiment: 'bearish',
-    lastQuarterSurprise: '-8.5% EPS miss',
-    keyRisk: 'Automotive ex-credits gross margin & FSD/Robotaxi regulatory timeline',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$780B'
-  },
-  {
-    ticker: 'MSFT',
-    name: 'Microsoft Corporation',
-    date: '2026-10-22',
-    session: 'AMC',
-    fiscalQuarter: 'Q1 FY27',
-    epsEstimate: '$3.10',
-    epsPriorYear: '$2.99',
-    epsGrowthYoY: '+3.7%',
-    revenueEstimate: '$64.50B',
-    revenueGrowthYoY: '+14.1%',
-    impliedMove: '±4.5%',
-    impliedMoveNumeric: 4.5,
-    revisions: '16 Up / 4 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+4.9% EPS beat',
-    keyRisk: 'Azure AI cloud capacity & capex payback visibility',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$3.16T'
-  },
-  {
-    ticker: 'ISRG',
-    name: 'Intuitive Surgical, Inc.',
-    date: '2026-10-23',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$1.65',
-    epsPriorYear: '$1.46',
-    epsGrowthYoY: '+13.0%',
-    revenueEstimate: '$2.02B',
-    revenueGrowthYoY: '+15.4%',
-    impliedMove: '±5.3%',
-    impliedMoveNumeric: 5.3,
-    revisions: '15 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+7.2% EPS beat',
-    keyRisk: 'da Vinci 5 system placements & global surgical procedure volume',
-    sector: 'Healthcare & Biotech',
-    marketCap: '$175B'
-  },
-  {
-    ticker: 'NOW',
-    name: 'ServiceNow, Inc.',
-    date: '2026-10-23',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$3.46',
-    epsPriorYear: '$2.92',
-    epsGrowthYoY: '+18.5%',
-    revenueEstimate: '$2.75B',
-    revenueGrowthYoY: '+20.1%',
-    impliedMove: '±6.2%',
-    impliedMoveNumeric: 6.2,
-    revisions: '23 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+6.8% EPS beat',
-    keyRisk: 'Now Assist generative AI Pro Plus net new ACV & cRPO expansion',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$190B'
-  },
-  {
-    ticker: 'GOOGL',
-    name: 'Alphabet Inc.',
-    date: '2026-10-27',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$1.85',
-    epsPriorYear: '$1.55',
-    epsGrowthYoY: '+19.4%',
-    revenueEstimate: '$86.30B',
-    revenueGrowthYoY: '+12.5%',
-    impliedMove: '±5.6%',
-    impliedMoveNumeric: 5.6,
-    revisions: '21 Up / 3 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+7.8% EPS beat',
-    keyRisk: 'Search AI Overviews monetization & DOJ antitrust remedies',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$2.08T'
-  },
-  {
-    ticker: 'V',
-    name: 'Visa Inc.',
-    date: '2026-10-27',
-    session: 'AMC',
-    fiscalQuarter: 'Q4 FY26',
-    epsEstimate: '$2.58',
-    epsPriorYear: '$2.33',
-    epsGrowthYoY: '+10.7%',
-    revenueEstimate: '$9.49B',
-    revenueGrowthYoY: '+10.2%',
-    impliedMove: '±3.2%',
-    impliedMoveNumeric: 3.2,
-    revisions: '17 Up / 3 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+2.9% EPS beat',
-    keyRisk: 'Cross-border travel volume growth & US debit regulatory scrutiny',
-    sector: 'Blue Chips & Value',
-    marketCap: '$565B'
-  },
-  {
-    ticker: 'META',
-    name: 'Meta Platforms, Inc.',
-    date: '2026-10-28',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$5.25',
-    epsPriorYear: '$4.39',
-    epsGrowthYoY: '+19.6%',
-    revenueEstimate: '$40.20B',
-    revenueGrowthYoY: '+17.7%',
-    impliedMove: '±7.0%',
-    impliedMoveNumeric: 7.0,
-    revisions: '24 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+11.2% EPS beat',
-    keyRisk: 'FY27 AI infrastructure capex guidance & Reels ad impression pricing',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$1.48T'
-  },
-  {
-    ticker: 'AMD',
-    name: 'Advanced Micro Devices, Inc.',
-    date: '2026-10-28',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$0.92',
-    epsPriorYear: '$0.70',
-    epsGrowthYoY: '+31.4%',
-    revenueEstimate: '$6.71B',
-    revenueGrowthYoY: '+15.7%',
-    impliedMove: '±7.5%',
-    impliedMoveNumeric: 7.5,
-    revisions: '15 Up / 5 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+2.2% EPS beat',
-    keyRisk: 'MI325X / MI350 data center GPU revenue guide & PC client recovery',
-    sector: 'AI & Semiconductors',
-    marketCap: '$252B'
-  },
-  {
-    ticker: 'LLY',
-    name: 'Eli Lilly and Company',
-    date: '2026-10-29',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$1.45',
-    epsPriorYear: '$0.10',
-    epsGrowthYoY: '+1,350%',
-    revenueEstimate: '$12.10B',
-    revenueGrowthYoY: '+27.4%',
-    impliedMove: '±6.5%',
-    impliedMoveNumeric: 6.5,
-    revisions: '19 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+18.2% EPS beat',
-    keyRisk: 'Mounjaro / Zepbound manufacturing fill-finish supply & GLP-1 pricing',
-    sector: 'Healthcare & Biotech',
-    marketCap: '$860B'
-  },
-  {
-    ticker: 'AAPL',
-    name: 'Apple Inc.',
-    date: '2026-10-29',
-    session: 'AMC',
-    fiscalQuarter: 'Q4 FY26',
-    epsEstimate: '$1.55',
-    epsPriorYear: '$1.46',
-    epsGrowthYoY: '+6.2%',
-    revenueEstimate: '$94.20B',
-    revenueGrowthYoY: '+5.3%',
-    impliedMove: '±4.2%',
-    impliedMoveNumeric: 4.2,
-    revisions: '14 Up / 6 Down (30D)',
-    revisionsSentiment: 'neutral',
-    lastQuarterSurprise: '+3.4% EPS beat',
-    keyRisk: 'iPhone 17 Apple Intelligence upgrade cycle & Greater China demand',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$3.52T'
-  },
-  {
-    ticker: 'AMZN',
-    name: 'Amazon.com, Inc.',
-    date: '2026-10-29',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$1.14',
-    epsPriorYear: '$0.94',
-    epsGrowthYoY: '+21.3%',
-    revenueEstimate: '$157.20B',
-    revenueGrowthYoY: '+9.9%',
-    impliedMove: '±6.1%',
-    impliedMoveNumeric: 6.1,
-    revisions: '22 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+9.5% EPS beat',
-    keyRisk: 'AWS generative AI re-acceleration & North America retail margin expansion',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$2.02T'
-  },
-  {
-    ticker: 'UBER',
-    name: 'Uber Technologies, Inc.',
-    date: '2026-10-30',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$0.41',
-    epsPriorYear: '$0.10',
-    epsGrowthYoY: '+310%',
-    revenueEstimate: '$10.98B',
-    revenueGrowthYoY: '+18.2%',
-    impliedMove: '±6.8%',
-    impliedMoveNumeric: 6.8,
-    revisions: '18 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+12.5% EPS beat',
-    keyRisk: 'Autonomous vehicle partnership economics & mobility gross bookings',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$162B'
-  },
-  {
-    ticker: 'MA',
-    name: 'Mastercard Incorporated',
-    date: '2026-10-30',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$3.74',
-    epsPriorYear: '$3.39',
-    epsGrowthYoY: '+10.3%',
-    revenueEstimate: '$7.27B',
-    revenueGrowthYoY: '+11.2%',
-    impliedMove: '±3.5%',
-    impliedMoveNumeric: 3.5,
-    revisions: '16 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+3.6% EPS beat',
-    keyRisk: 'Global consumer discretionary spend & value-added services growth',
-    sector: 'Blue Chips & Value',
-    marketCap: '$465B'
-  },
-
-  // NOVEMBER 2026
-  {
-    ticker: 'BRK.B',
-    name: 'Berkshire Hathaway Inc.',
-    date: '2026-11-02',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$4.85',
-    epsPriorYear: '$4.52',
-    epsGrowthYoY: '+7.3%',
-    revenueEstimate: '$92.50B',
-    revenueGrowthYoY: '+4.8%',
-    impliedMove: '±2.6%',
-    impliedMoveNumeric: 2.6,
-    revisions: '8 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+5.1% EPS beat',
-    keyRisk: 'GEICO underwriting ratios & T-bill cash pile deployment yield',
-    sector: 'Blue Chips & Value',
-    marketCap: '$985B'
-  },
-  {
-    ticker: 'VRTX',
-    name: 'Vertex Pharmaceuticals Inc.',
-    date: '2026-11-03',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$4.15',
-    epsPriorYear: '$3.87',
-    epsGrowthYoY: '+7.2%',
-    revenueEstimate: '$2.69B',
-    revenueGrowthYoY: '+8.5%',
-    impliedMove: '±4.9%',
-    impliedMoveNumeric: 4.9,
-    revisions: '16 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+5.4% EPS beat',
-    keyRisk: 'Suzetrigine non-opioid pain uptake & Casgevy treatment center activations',
-    sector: 'Healthcare & Biotech',
-    marketCap: '$123B'
-  },
-  {
-    ticker: 'PLTR',
-    name: 'Palantir Technologies Inc.',
-    date: '2026-11-04',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$0.09',
-    epsPriorYear: '$0.07',
-    epsGrowthYoY: '+28.6%',
-    revenueEstimate: '$705M',
-    revenueGrowthYoY: '+26.3%',
-    impliedMove: '±11.4%',
-    impliedMoveNumeric: 11.4,
-    revisions: '17 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+12.5% EPS beat',
-    keyRisk: 'US commercial AIP bootcamp conversion velocity & defense contract timing',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$96B'
-  },
-  {
-    ticker: 'ARM',
-    name: 'Arm Holdings plc',
-    date: '2026-11-06',
-    session: 'AMC',
-    fiscalQuarter: 'Q2 FY27',
-    epsEstimate: '$0.26',
-    epsPriorYear: '$0.36',
-    epsGrowthYoY: '-27.8%',
-    revenueEstimate: '$810M',
-    revenueGrowthYoY: '+0.5%',
-    impliedMove: '±9.8%',
-    impliedMoveNumeric: 9.8,
-    revisions: '14 Up / 5 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+8.1% EPS beat',
-    keyRisk: 'Armv9 royalty rate adoption in smartphones & data center CPU licensing',
-    sector: 'AI & Semiconductors',
-    marketCap: '$154B'
-  },
-  {
-    ticker: 'ANET',
-    name: 'Arista Networks, Inc.',
-    date: '2026-11-09',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$2.08',
-    epsPriorYear: '$1.83',
-    epsGrowthYoY: '+13.7%',
-    revenueEstimate: '$1.75B',
-    revenueGrowthYoY: '+15.9%',
-    impliedMove: '±7.6%',
-    impliedMoveNumeric: 7.6,
-    revisions: '19 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+6.4% EPS beat',
-    keyRisk: '800G AI back-end Ethernet switching trials at cloud titans',
-    sector: 'AI & Semiconductors',
-    marketCap: '$124B'
-  },
-  {
-    ticker: 'SHOP',
-    name: 'Shopify Inc.',
-    date: '2026-11-11',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '$0.27',
-    epsPriorYear: '$0.24',
-    epsGrowthYoY: '+12.5%',
-    revenueEstimate: '$2.12B',
-    revenueGrowthYoY: '+23.8%',
-    impliedMove: '±9.4%',
-    impliedMoveNumeric: 9.4,
-    revisions: '19 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+11.1% EPS beat',
-    keyRisk: 'Gross Merchandise Volume (GMV) trajectory & enterprise Plus merchant attach',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$109B'
-  },
-  {
-    ticker: 'SPOT',
-    name: 'Spotify Technology S.A.',
-    date: '2026-11-12',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY26',
-    epsEstimate: '€1.72',
-    epsPriorYear: '€0.33',
-    epsGrowthYoY: '+421%',
-    revenueEstimate: '€4.02B',
-    revenueGrowthYoY: '+19.6%',
-    impliedMove: '±8.2%',
-    impliedMoveNumeric: 8.2,
-    revisions: '21 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+14.0% EPS beat',
-    keyRisk: 'Premium subscriber net additions & gross margin expansion above 30%',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$78B'
-  },
-  {
-    ticker: 'WMT',
-    name: 'Walmart Inc.',
-    date: '2026-11-18',
-    session: 'BMO',
-    fiscalQuarter: 'Q3 FY27',
-    epsEstimate: '$0.54',
-    epsPriorYear: '$0.51',
-    epsGrowthYoY: '+5.9%',
-    revenueEstimate: '$167.50B',
-    revenueGrowthYoY: '+4.2%',
-    impliedMove: '±4.1%',
-    impliedMoveNumeric: 4.1,
-    revisions: '18 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+3.8% EPS beat',
-    keyRisk: 'US comparable store sales & Walmart Connect advertising margin mix',
-    sector: 'Blue Chips & Value',
-    marketCap: '$605B'
-  },
-  {
-    ticker: 'NVDA',
-    name: 'NVIDIA Corporation',
-    date: '2026-11-19',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY27',
-    epsEstimate: '$0.75',
-    epsPriorYear: '$0.40',
-    epsGrowthYoY: '+87.5%',
-    revenueEstimate: '$33.10B',
-    revenueGrowthYoY: '+82.6%',
-    impliedMove: '±7.8%',
-    impliedMoveNumeric: 7.8,
-    revisions: '28 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+6.1% EPS beat',
-    keyRisk: 'Blackwell architecture production ramp & data center gross margin cadence',
-    sector: 'AI & Semiconductors',
-    marketCap: '$3.15T'
-  },
-  {
-    ticker: 'PANW',
-    name: 'Palo Alto Networks, Inc.',
-    date: '2026-11-20',
-    session: 'AMC',
-    fiscalQuarter: 'Q1 FY27',
-    epsEstimate: '$1.48',
-    epsPriorYear: '$1.38',
-    epsGrowthYoY: '+7.2%',
-    revenueEstimate: '$2.12B',
-    revenueGrowthYoY: '+12.8%',
-    impliedMove: '±7.9%',
-    impliedMoveNumeric: 7.9,
-    revisions: '20 Up / 3 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+5.7% EPS beat',
-    keyRisk: 'Next-Gen Security ARR platformization & remaining performance obligations',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$122B'
-  },
-  {
-    ticker: 'CRWD',
-    name: 'CrowdStrike Holdings, Inc.',
-    date: '2026-11-25',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY27',
-    epsEstimate: '$0.81',
-    epsPriorYear: '$0.82',
-    epsGrowthYoY: '-1.2%',
-    revenueEstimate: '$982M',
-    revenueGrowthYoY: '+25.0%',
-    impliedMove: '±8.7%',
-    impliedMoveNumeric: 8.7,
-    revisions: '15 Up / 7 Down (30D)',
-    revisionsSentiment: 'neutral',
-    lastQuarterSurprise: '+6.1% EPS beat',
-    keyRisk: 'Net new ARR retention & Falcon Flex module adoption post-incident',
-    sector: 'High-Growth & Fintech',
-    marketCap: '$76B'
-  },
-
-  // DECEMBER 2026
-  {
-    ticker: 'CRM',
-    name: 'Salesforce, Inc.',
-    date: '2026-12-02',
-    session: 'AMC',
-    fiscalQuarter: 'Q3 FY27',
-    epsEstimate: '$2.44',
-    epsPriorYear: '$2.11',
-    epsGrowthYoY: '+15.6%',
-    revenueEstimate: '$9.35B',
-    revenueGrowthYoY: '+7.2%',
-    impliedMove: '±6.9%',
-    impliedMoveNumeric: 6.9,
-    revisions: '18 Up / 4 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+8.5% EPS beat',
-    keyRisk: 'Agentforce autonomous AI agent adoption & cRPO growth',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$285B'
-  },
-  {
-    ticker: 'ORCL',
-    name: 'Oracle Corporation',
-    date: '2026-12-09',
-    session: 'AMC',
-    fiscalQuarter: 'Q2 FY27',
-    epsEstimate: '$1.48',
-    epsPriorYear: '$1.34',
-    epsGrowthYoY: '+10.4%',
-    revenueEstimate: '$14.12B',
-    revenueGrowthYoY: '+9.1%',
-    impliedMove: '±7.2%',
-    impliedMoveNumeric: 7.2,
-    revisions: '20 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+4.5% EPS beat',
-    keyRisk: 'OCI GPU cluster backlog conversion & multi-cloud database expansion',
-    sector: 'Big Tech & Cloud',
-    marketCap: '$477B'
-  },
-  {
-    ticker: 'AVGO',
-    name: 'Broadcom Inc.',
-    date: '2026-12-10',
-    session: 'AMC',
-    fiscalQuarter: 'Q4 FY26',
-    epsEstimate: '$1.39',
-    epsPriorYear: '$1.11',
-    epsGrowthYoY: '+25.2%',
-    revenueEstimate: '$14.05B',
-    revenueGrowthYoY: '+51.1%',
-    impliedMove: '±6.8%',
-    impliedMoveNumeric: 6.8,
-    revisions: '23 Up / 1 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+3.3% EPS beat',
-    keyRisk: 'Custom AI XPU accelerator demand & VMware software integration margins',
-    sector: 'AI & Semiconductors',
-    marketCap: '$815B'
-  },
-  {
-    ticker: 'COST',
-    name: 'Costco Wholesale Corporation',
-    date: '2026-12-12',
-    session: 'AMC',
-    fiscalQuarter: 'Q1 FY27',
-    epsEstimate: '$3.78',
-    epsPriorYear: '$3.58',
-    epsGrowthYoY: '+5.6%',
-    revenueEstimate: '$62.10B',
-    revenueGrowthYoY: '+7.4%',
-    impliedMove: '±3.6%',
-    impliedMoveNumeric: 3.6,
-    revisions: '15 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+4.4% EPS beat',
-    keyRisk: 'Membership fee increase flow-through & comparable store traffic',
-    sector: 'Blue Chips & Value',
-    marketCap: '$402B'
-  },
-  {
-    ticker: 'MU',
-    name: 'Micron Technology, Inc.',
-    date: '2026-12-18',
-    session: 'AMC',
-    fiscalQuarter: 'Q1 FY27',
-    epsEstimate: '$1.74',
-    epsPriorYear: '$-0.95',
-    epsGrowthYoY: '+283%',
-    revenueEstimate: '$8.70B',
-    revenueGrowthYoY: '+84.0%',
-    impliedMove: '±8.5%',
-    impliedMoveNumeric: 8.5,
-    revisions: '19 Up / 2 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+14.2% EPS beat',
-    keyRisk: 'HBM3E 12-high memory yield qualification & DRAM spot pricing',
-    sector: 'AI & Semiconductors',
-    marketCap: '$118B'
-  },
-
-  // FEBRUARY 2027
-  {
-    ticker: 'RR.L',
-    name: 'Rolls-Royce Holdings plc',
-    date: '2027-02-25',
-    session: 'BMO',
-    fiscalQuarter: 'FY26 Results',
-    epsEstimate: '38.50p',
-    epsPriorYear: '29.55p',
-    epsGrowthYoY: '+30.3%',
-    revenueEstimate: '£18.20B',
-    revenueGrowthYoY: '+18.5%',
-    impliedMove: '±5.0%',
-    impliedMoveNumeric: 5.0,
-    revisions: '12 Up / 0 Down (30D)',
-    revisionsSentiment: 'bullish',
-    lastQuarterSurprise: '+12.0% EPS beat',
-    keyRisk: 'Civil aerospace widebody engine flying hours & free cash flow conversion',
-    sector: 'Blue Chips & Value',
-    marketCap: '£41.5B'
-  }
-];
+export { EARNINGS_CALENDAR_EVENTS, type EarningsCalendarEvent };
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+function formatEventFigure(val: string, ticker: string): string {
+  if (!val) return val;
+  if (!isLseTicker(ticker)) return val;
+  // Convert pence (e.g. '14.20p') to GBP (£)
+  const penceMatch = val.trim().match(/^(-?\d+(?:\.\d+)?)p$/i);
+  if (penceMatch) {
+    const pounds = parseFloat(penceMatch[1]) / 100;
+    return `£${pounds.toFixed(2)}`;
+  }
+  // Ensure any '$' prefix on an LSE stock is displayed as '£' (GBP)
+  return val.replace(/\$/g, '£');
+}
+
 export default function EarningsCalendar() {
   const navigate = useNavigate();
-  // Default to October 2026 (where the richest cluster of Q3 earnings catalysts sits around Oct 2026)
   const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [selectedEvent, setSelectedEvent] = useState<EarningsCalendarEvent | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
@@ -815,31 +82,58 @@ export default function EarningsCalendar() {
   }, []);
 
   const watchlistTickerSet = useMemo(() => {
-    return new Set(TOP_20_RECOMMENDED_STOCKS.map(s => s.ticker.toUpperCase()));
+    const set = new Set<string>();
+    TOP_20_RECOMMENDED_STOCKS.forEach(s => {
+      const norm = normalizeEarningsTicker(s.ticker);
+      set.add(s.ticker.toUpperCase());
+      set.add(norm);
+    });
+    return set;
   }, []);
 
-  const portfolioTickerSet = useMemo(() => {
-    return new Set(portfolioPositions.map(p => p.ticker.toUpperCase()));
+  // Exclude ETFs (e.g. VUAG, INRG.L) from portfolio earnings tracking since ETFs do not report corporate earnings
+  const equityPortfolioPositions = useMemo(() => {
+    return portfolioPositions.filter(p => !isEtfTicker(p.ticker, p.name));
   }, [portfolioPositions]);
 
-  // Merge authoritative calendar events with any custom portfolio tickers not already in the list
+  const portfolioTickerSet = useMemo(() => {
+    const set = new Set<string>();
+    equityPortfolioPositions.forEach(p => {
+      const norm = normalizeEarningsTicker(p.ticker);
+      set.add(p.ticker.toUpperCase());
+      set.add(norm);
+    });
+    return set;
+  }, [equityPortfolioPositions]);
+
+  // Merge authoritative calendar events with any custom non-ETF portfolio equities not already in the schedule
   const allEvents = useMemo(() => {
-    const existingTickers = new Set(EARNINGS_CALENDAR_EVENTS.map(e => e.ticker.toUpperCase()));
+    const existingTickers = new Set<string>();
+    EARNINGS_CALENDAR_EVENTS.forEach(e => {
+      existingTickers.add(e.ticker.toUpperCase());
+      existingTickers.add(normalizeEarningsTicker(e.ticker));
+    });
+
     const customPortfolioEvents: EarningsCalendarEvent[] = [];
 
-    portfolioPositions.forEach((pos, idx) => {
+    equityPortfolioPositions.forEach((pos, idx) => {
       const sym = pos.ticker.toUpperCase();
-      if (!existingTickers.has(sym)) {
+      const norm = normalizeEarningsTicker(sym);
+      if (!existingTickers.has(sym) && !existingTickers.has(norm)) {
         existingTickers.add(sym);
-        // Place custom portfolio ticker on an upcoming weekday in the current month
-        const fallbackDay = Math.min(28, 12 + (idx * 3) % 16);
-        const dateStr = format(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), fallbackDay), 'yyyy-MM-dd');
+        existingTickers.add(norm);
+        // Deterministic trading weekday in November 2026 (never shifts when switching months and never lands on a weekend)
+        const seed = sym.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+        const dayCandidate = 3 + ((seed + idx * 5) % 23);
+        const fixedWeekday = snapToTradingWeekday(new Date(2026, 10, dayCandidate));
+        const dateStr = formatToIsoDate(fixedWeekday);
+
         customPortfolioEvents.push({
           ticker: sym,
           name: pos.name || sym,
           date: dateStr,
-          session: idx % 2 === 0 ? 'AMC' : 'BMO',
-          fiscalQuarter: 'Next Quarter',
+          session: seed % 2 === 0 ? 'AMC' : 'BMO',
+          fiscalQuarter: 'Q3 FY26',
           epsEstimate: 'Consensus Est.',
           epsPriorYear: 'N/A',
           epsGrowthYoY: '+12.0%',
@@ -860,30 +154,32 @@ export default function EarningsCalendar() {
     return [...EARNINGS_CALENDAR_EVENTS, ...customPortfolioEvents].sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-  }, [portfolioPositions, currentMonth]);
+  }, [equityPortfolioPositions]);
 
   // Filtered events
   const filteredEvents = useMemo(() => {
     return allEvents.filter(ev => {
       const sym = ev.ticker.toUpperCase();
-      if (filterMode === 'watchlist' && !watchlistTickerSet.has(sym)) return false;
-      if (filterMode === 'portfolio' && !portfolioTickerSet.has(sym)) return false;
+      const norm = normalizeEarningsTicker(sym);
+      if (filterMode === 'watchlist' && !watchlistTickerSet.has(sym) && !watchlistTickerSet.has(norm)) return false;
+      if (filterMode === 'portfolio' && !portfolioTickerSet.has(sym) && !portfolioTickerSet.has(norm)) return false;
       if (filterMode === 'high_move' && ev.impliedMoveNumeric < 7.0) return false;
       if (sessionFilter !== 'ALL' && ev.session !== sessionFilter) return false;
 
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
+        const rawQ = searchQuery.trim().toLowerCase();
+        const aliasQ = normalizeEarningsTicker(rawQ).toLowerCase();
         return (
-          ev.ticker.toLowerCase().includes(q) ||
-          ev.name.toLowerCase().includes(q) ||
-          ev.sector.toLowerCase().includes(q)
+          ev.ticker.toLowerCase().includes(rawQ) ||
+          ev.ticker.toLowerCase().includes(aliasQ) ||
+          ev.name.toLowerCase().includes(rawQ) ||
+          ev.sector.toLowerCase().includes(rawQ)
         );
       }
       return true;
     });
   }, [allEvents, filterMode, sessionFilter, searchQuery, watchlistTickerSet, portfolioTickerSet]);
 
-  // If user searches for a specific ticker and it's in another month, let them jump or auto-focus
   const eventsByDate = useMemo(() => {
     const map: Record<string, EarningsCalendarEvent[]> = {};
     filteredEvents.forEach(ev => {
@@ -907,10 +203,15 @@ export default function EarningsCalendar() {
     return filteredEvents.filter(ev => isSameMonth(parseISO(ev.date), currentMonth));
   }, [filteredEvents, currentMonth]);
 
-  // Summary metrics for header
+  // Unique companies count for the All filter pill
+  const uniqueScheduledCompaniesCount = useMemo(() => {
+    return new Set(allEvents.map(e => normalizeEarningsTicker(e.ticker))).size;
+  }, [allEvents]);
+
+  // Summary metrics for header (strictly without rolling past dates forward)
   const upcomingWithin7DaysCount = useMemo(() => {
     return allEvents.filter(ev => {
-      const timing = computeEarningsTiming(ev.date);
+      const timing = computeEarningsTiming(ev.date, undefined, false);
       return !timing.isPast && timing.daysUntil >= 0 && timing.daysUntil <= 7;
     }).length;
   }, [allEvents]);
@@ -928,6 +229,7 @@ export default function EarningsCalendar() {
     { label: 'Oct 2026', date: new Date(2026, 9, 1) },
     { label: 'Nov 2026', date: new Date(2026, 10, 1) },
     { label: 'Dec 2026', date: new Date(2026, 11, 1) },
+    { label: 'Jan 2027', date: new Date(2027, 0, 1) },
     { label: 'Feb 2027', date: new Date(2027, 1, 1) }
   ];
 
@@ -1058,17 +360,31 @@ export default function EarningsCalendar() {
                 onChange={e => {
                   const val = e.target.value;
                   setSearchQuery(val);
-                  // Auto-navigate to the matching event's month if not in current month
                   if (val.trim().length >= 2) {
                     const q = val.trim().toLowerCase();
-                    const match = allEvents.find(
-                      ev => ev.ticker.toLowerCase().includes(q) || ev.name.toLowerCase().includes(q)
-                    );
-                    if (match) {
-                      const matchDate = parseISO(match.date);
-                      if (!isSameMonth(matchDate, currentMonth)) {
-                        setCurrentMonth(startOfMonth(matchDate));
-                      }
+                    const aliasQ = normalizeEarningsTicker(q).toLowerCase();
+                    const matches = allEvents.filter(ev => {
+                      const tLower = ev.ticker.toLowerCase();
+                      return (
+                        tLower.includes(q) ||
+                        tLower.includes(aliasQ) ||
+                        ev.name.toLowerCase().includes(q)
+                      );
+                    });
+                    if (matches.length > 0) {
+                      const exactMatch =
+                        matches.find(
+                          m =>
+                            m.ticker.toLowerCase() === q ||
+                            m.ticker.toLowerCase() === aliasQ
+                        ) ||
+                        matches.find(
+                          m => !computeEarningsTiming(m.date, undefined, false).isPast
+                        ) ||
+                        matches[0];
+                      const matchDate = parseISO(exactMatch.date);
+                      setCurrentMonth(startOfMonth(matchDate));
+                      setSelectedDay(matchDate);
                     }
                   }
                 }}
@@ -1129,7 +445,7 @@ export default function EarningsCalendar() {
                   : "bg-black/5 dark:bg-white/5 text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white"
               )}
             >
-              All ({allEvents.length})
+              All ({uniqueScheduledCompaniesCount})
             </button>
             <button
               onClick={() => setFilterMode('watchlist')}
@@ -1153,7 +469,7 @@ export default function EarningsCalendar() {
               )}
             >
               <Briefcase className="w-3 h-3" />
-              My Portfolio ({portfolioPositions.length})
+              My Portfolio ({equityPortfolioPositions.length})
             </button>
             <button
               onClick={() => setFilterMode('high_move')}
@@ -1277,10 +593,11 @@ export default function EarningsCalendar() {
                     {/* Ticker Logo Cards inside Calendar Cell */}
                     <div className="space-y-1 sm:space-y-1.5 flex-1 flex flex-col justify-start">
                       {dayEvents.map(ev => {
-                        const isHeld = portfolioTickerSet.has(ev.ticker.toUpperCase());
+                        const norm = normalizeEarningsTicker(ev.ticker);
+                        const isHeld = portfolioTickerSet.has(ev.ticker.toUpperCase()) || portfolioTickerSet.has(norm);
                         return (
                           <button
-                            key={ev.ticker}
+                            key={`${ev.ticker}-${ev.date}`}
                             type="button"
                             onClick={e => {
                               e.stopPropagation();
@@ -1369,10 +686,10 @@ export default function EarningsCalendar() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {selectedDayEvents.map(ev => {
-                  const timing = computeEarningsTiming(ev.date);
+                  const timing = computeEarningsTiming(ev.date, undefined, false);
                   return (
                     <div
-                      key={ev.ticker}
+                      key={`${ev.ticker}-${ev.date}`}
                       onClick={() => setSelectedEvent(ev)}
                       className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-[#1A1A1A] border border-black/5 dark:border-white/10 hover:border-emerald-500/40 transition-all cursor-pointer flex flex-col justify-between gap-3"
                     >
@@ -1380,8 +697,13 @@ export default function EarningsCalendar() {
                         <div className="flex items-center gap-2.5 min-w-0">
                           <TickerLogo ticker={ev.ticker} companyName={ev.name} size="md" />
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-mono text-sm font-black">{ev.ticker}</span>
+                              {isLseTicker(ev.ticker) && (
+                                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                  LSE · GBP
+                                </span>
+                              )}
                               <span
                                 className={cn(
                                   "text-[9px] font-black uppercase px-1.5 py-0.5 rounded flex items-center gap-1",
@@ -1407,13 +729,17 @@ export default function EarningsCalendar() {
                           <span className="text-[9px] font-bold uppercase text-black/40 dark:text-white/40 block">
                             EPS Est
                           </span>
-                          <span className="text-xs font-mono font-black">{ev.epsEstimate}</span>
+                          <span className="text-xs font-mono font-black">
+                            {formatEventFigure(ev.epsEstimate, ev.ticker)}
+                          </span>
                         </div>
                         <div>
                           <span className="text-[9px] font-bold uppercase text-black/40 dark:text-white/40 block">
                             Rev Est
                           </span>
-                          <span className="text-xs font-mono font-black">{ev.revenueEstimate}</span>
+                          <span className="text-xs font-mono font-black">
+                            {formatEventFigure(ev.revenueEstimate, ev.ticker)}
+                          </span>
                         </div>
                         <div>
                           <span className="text-[9px] font-bold uppercase text-black/40 dark:text-white/40 block">
@@ -1450,11 +776,12 @@ export default function EarningsCalendar() {
           ) : (
             <div className="divide-y divide-black/5 dark:divide-white/5">
               {currentMonthEvents.map(ev => {
-                const timing = computeEarningsTiming(ev.date);
-                const isHeld = portfolioTickerSet.has(ev.ticker.toUpperCase());
+                const timing = computeEarningsTiming(ev.date, undefined, false);
+                const norm = normalizeEarningsTicker(ev.ticker);
+                const isHeld = portfolioTickerSet.has(ev.ticker.toUpperCase()) || portfolioTickerSet.has(norm);
                 return (
                   <div
-                    key={ev.ticker}
+                    key={`${ev.ticker}-${ev.date}`}
                     onClick={() => setSelectedEvent(ev)}
                     className="py-3.5 px-2 hover:bg-black/[0.015] dark:hover:bg-white/[0.015] rounded-2xl transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
                   >
@@ -1464,6 +791,11 @@ export default function EarningsCalendar() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm font-black">{ev.ticker}</span>
                           <span className="text-xs font-bold text-black/70 dark:text-white/70">{ev.name}</span>
+                          {isLseTicker(ev.ticker) && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-black/70 dark:text-white/70">
+                              LSE · GBP (£)
+                            </span>
+                          )}
                           {isHeld && (
                             <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                               In Portfolio
@@ -1488,7 +820,7 @@ export default function EarningsCalendar() {
                           Consensus EPS / Rev
                         </span>
                         <span className="text-xs font-mono font-black">
-                          {ev.epsEstimate} · {ev.revenueEstimate}
+                          {formatEventFigure(ev.epsEstimate, ev.ticker)} · {formatEventFigure(ev.revenueEstimate, ev.ticker)}
                         </span>
                       </div>
 
@@ -1541,6 +873,11 @@ export default function EarningsCalendar() {
                       <h3 className="text-xl font-black font-mono tracking-tight">
                         {selectedEvent.ticker}
                       </h3>
+                      {isLseTicker(selectedEvent.ticker) && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                          LSE · GBP (£)
+                        </span>
+                      )}
                       <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10">
                         {selectedEvent.fiscalQuarter}
                       </span>
@@ -1581,7 +918,9 @@ export default function EarningsCalendar() {
                     Consensus EPS Estimate
                   </span>
                   <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-lg font-black font-mono">{selectedEvent.epsEstimate}</span>
+                    <span className="text-lg font-black font-mono">
+                      {formatEventFigure(selectedEvent.epsEstimate, selectedEvent.ticker)}
+                    </span>
                     <span
                       className={cn(
                         "text-[11px] font-mono font-bold",
@@ -1594,7 +933,7 @@ export default function EarningsCalendar() {
                     </span>
                   </div>
                   <span className="text-[10px] text-black/50 dark:text-white/50 mt-0.5 block">
-                    Prior Year: {selectedEvent.epsPriorYear}
+                    Prior Year: {formatEventFigure(selectedEvent.epsPriorYear, selectedEvent.ticker)}
                   </span>
                 </div>
 
@@ -1603,7 +942,9 @@ export default function EarningsCalendar() {
                     Consensus Revenue
                   </span>
                   <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-lg font-black font-mono">{selectedEvent.revenueEstimate}</span>
+                    <span className="text-lg font-black font-mono">
+                      {formatEventFigure(selectedEvent.revenueEstimate, selectedEvent.ticker)}
+                    </span>
                     <span className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
                       {selectedEvent.revenueGrowthYoY} YoY
                     </span>
@@ -1660,8 +1001,26 @@ export default function EarningsCalendar() {
                   type="button"
                   onClick={() => {
                     const sym = selectedEvent.ticker;
+                    const norm = normalizeEarningsTicker(sym);
+                    const matchedHolding = equityPortfolioPositions.find(
+                      p =>
+                        p.ticker.toUpperCase() === sym.toUpperCase() ||
+                        normalizeEarningsTicker(p.ticker) === norm
+                    );
+                    const targetCurrency = isLseTicker(sym, matchedHolding?.exchange)
+                      ? 'GBP'
+                      : matchedHolding?.currency || 'USD';
+                    const params = new URLSearchParams();
+                    params.set('ticker', sym);
+                    params.set('currency', targetCurrency);
+                    if (matchedHolding?.avgPrice) {
+                      params.set('avgPrice', String(matchedHolding.avgPrice));
+                    }
+                    if (matchedHolding?.shares) {
+                      params.set('shares', String(matchedHolding.shares));
+                    }
                     setSelectedEvent(null);
-                    navigate(`/?ticker=${encodeURIComponent(sym)}`);
+                    navigate(`/?${params.toString()}`);
                   }}
                   className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white dark:bg-emerald-500 dark:text-black flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >

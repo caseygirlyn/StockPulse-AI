@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { getAuthoritativeDomain, resolveTickerLogoUrl, getAuthoritativeCompanyName, KNOWN_TICKER_DOMAINS } from "../utils/tickerLogos.js";
 import { resolveExchangeSchedule } from "../utils/marketHours.js";
-import { computeEarningsTiming } from "../utils/earningsDate.js";
+import { computeEarningsTiming, getAuthoritativeEarningsForTicker } from "../utils/earningsDate.js";
 
 export interface AvwapAthData {
   athPrice: number;
@@ -735,24 +735,24 @@ export interface EarningsEstimatesData {
 
 export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> = {
   'MU': {
-    earningsDate: 'Sep 25, 2026',
-    daysUntilEarnings: 11,
-    fiscalQuarter: 'Q4 FY26',
+    earningsDate: 'Dec 23, 2026',
+    daysUntilEarnings: 54,
+    fiscalQuarter: 'Q1 FY27',
     epsEstimate: '$1.74',
-    epsPriorYear: '$-0.14',
-    epsGrowthYoY: '+1,342%',
-    revenueEstimate: '$7.65B',
-    revenueGrowthYoY: '+82.4%',
+    epsPriorYear: '$-0.95',
+    epsGrowthYoY: '+283%',
+    revenueEstimate: '$8.70B',
+    revenueGrowthYoY: '+84.0%',
     revisions: '19 Up / 2 Down (30D)',
     revisionsSentiment: 'bullish',
     impliedMove: '±8.5%',
     lastQuarterSurprise: '+14.2% EPS beat',
     consensusRevisions: 'Upward trend (19 Up / 2 Down)',
-    keyRisk: 'HBM memory pricing guidance & margin execution'
+    keyRisk: 'HBM3E 12-high memory yield qualification & DRAM spot pricing'
   },
   'NVDA': {
-    earningsDate: 'Nov 19, 2026',
-    daysUntilEarnings: 66,
+    earningsDate: 'Nov 17, 2026',
+    daysUntilEarnings: 18,
     fiscalQuarter: 'Q3 FY27',
     epsEstimate: '$0.75',
     epsPriorYear: '$0.40',
@@ -767,24 +767,24 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     keyRisk: 'Blackwell architecture ramp and supply chain capacity'
   },
   'AAPL': {
-    earningsDate: 'Oct 29, 2026',
-    daysUntilEarnings: 45,
+    earningsDate: 'Nov 2, 2026',
+    daysUntilEarnings: 3,
     fiscalQuarter: 'Q4 FY26',
-    epsEstimate: '$1.55',
+    epsEstimate: '$1.60',
     epsPriorYear: '$1.46',
-    epsGrowthYoY: '+6.2%',
-    revenueEstimate: '$94.20B',
-    revenueGrowthYoY: '+5.3%',
-    revisions: '14 Up / 6 Down (30D)',
-    revisionsSentiment: 'neutral',
+    epsGrowthYoY: '+9.6%',
+    revenueEstimate: '$94.50B',
+    revenueGrowthYoY: '+5.6%',
+    revisions: '18 Up / 4 Down (30D)',
+    revisionsSentiment: 'bullish',
     impliedMove: '±4.2%',
     lastQuarterSurprise: '+3.4% EPS beat',
-    consensusRevisions: 'Stable / Balanced (14 Up / 6 Down)',
+    consensusRevisions: 'Positive (18 Up / 4 Down)',
     keyRisk: 'iPhone 17 cycle adoption & Greater China demand'
   },
   'MSFT': {
-    earningsDate: 'Oct 22, 2026',
-    daysUntilEarnings: 38,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 89,
     fiscalQuarter: 'Q1 FY27',
     epsEstimate: '$3.10',
     epsPriorYear: '$2.99',
@@ -799,8 +799,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     keyRisk: 'Azure AI cloud capacity & capex payback visibility'
   },
   'GOOGL': {
-    earningsDate: 'Oct 27, 2026',
-    daysUntilEarnings: 43,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 95,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$1.85',
     epsPriorYear: '$1.55',
@@ -815,8 +815,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     keyRisk: 'Search monetization transition & DOJ antitrust remedies'
   },
   'GOOG': {
-    earningsDate: 'Oct 27, 2026',
-    daysUntilEarnings: 43,
+    earningsDate: 'Oct 28, 2026',
+    daysUntilEarnings: 95,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$1.85',
     epsPriorYear: '$1.55',
@@ -832,7 +832,7 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
   },
   'TSLA': {
     earningsDate: 'Oct 21, 2026',
-    daysUntilEarnings: 37,
+    daysUntilEarnings: 89,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$0.58',
     epsPriorYear: '$0.66',
@@ -848,7 +848,7 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
   },
   'AMZN': {
     earningsDate: 'Oct 29, 2026',
-    daysUntilEarnings: 45,
+    daysUntilEarnings: 97,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$1.14',
     epsPriorYear: '$0.94',
@@ -863,8 +863,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     keyRisk: 'AWS cloud growth rate & retail operating margins'
   },
   'META': {
-    earningsDate: 'Oct 28, 2026',
-    daysUntilEarnings: 44,
+    earningsDate: 'Oct 21, 2026',
+    daysUntilEarnings: 89,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$5.25',
     epsPriorYear: '$4.39',
@@ -879,8 +879,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     keyRisk: 'AI infrastructure capex discipline & ad conversion ROI'
   },
   'AMD': {
-    earningsDate: 'Oct 28, 2026',
-    daysUntilEarnings: 44,
+    earningsDate: 'Nov 3, 2026',
+    daysUntilEarnings: 4,
     fiscalQuarter: 'Q3 FY26',
     epsEstimate: '$0.92',
     epsPriorYear: '$0.70',
@@ -892,7 +892,7 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     impliedMove: '±7.5%',
     lastQuarterSurprise: '+2.2% EPS beat',
     consensusRevisions: 'Stable',
-    keyRisk: 'Earnings gap'
+    keyRisk: 'MI325X / MI350 data center GPU revenue guide & PC client recovery'
   },
   'SAP': {
     earningsDate: 'Oct 21, 2026',
@@ -930,8 +930,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     earningsDate: 'Feb 25, 2027',
     daysUntilEarnings: 164,
     fiscalQuarter: 'FY26 Results',
-    epsEstimate: '38.50p',
-    epsPriorYear: '29.55p',
+    epsEstimate: '£0.39',
+    epsPriorYear: '£0.30',
     epsGrowthYoY: '+30.3%',
     revenueEstimate: '£18.20B',
     revenueGrowthYoY: '+18.5%',
@@ -946,8 +946,8 @@ export const AUTHORITATIVE_EARNINGS_MAP: Record<string, EarningsEstimatesData> =
     earningsDate: 'Feb 25, 2027',
     daysUntilEarnings: 164,
     fiscalQuarter: 'FY26 Results',
-    epsEstimate: '38.50p',
-    epsPriorYear: '29.55p',
+    epsEstimate: '£0.39',
+    epsPriorYear: '£0.30',
     epsGrowthYoY: '+30.3%',
     revenueEstimate: '£18.20B',
     revenueGrowthYoY: '+18.5%',
@@ -984,9 +984,39 @@ export function getEarningsEstimates(
   if (isETF) return undefined;
   const s = symbol.trim().toUpperCase();
   const cleanTicker = s.replace(/\.[A-Z]+$/, '');
+
+  // 1. Resolve from unified Earnings Calendar schedule first
+  const calendarEvent = getAuthoritativeEarningsForTicker(s) || getAuthoritativeEarningsForTicker(cleanTicker);
+  if (calendarEvent) {
+    const timing = computeEarningsTiming(calendarEvent.date, undefined, false);
+    const revSummary = calendarEvent.revisionsSentiment === 'bullish'
+      ? `Positive (${calendarEvent.revisions})`
+      : calendarEvent.revisionsSentiment === 'bearish'
+      ? `Downward (${calendarEvent.revisions})`
+      : `Stable (${calendarEvent.revisions})`;
+
+    return {
+      earningsDate: timing.displayDate,
+      daysUntilEarnings: timing.daysUntil,
+      fiscalQuarter: calendarEvent.fiscalQuarter,
+      epsEstimate: calendarEvent.epsEstimate,
+      epsPriorYear: calendarEvent.epsPriorYear,
+      epsGrowthYoY: calendarEvent.epsGrowthYoY,
+      revenueEstimate: calendarEvent.revenueEstimate,
+      revenueGrowthYoY: calendarEvent.revenueGrowthYoY,
+      revisions: calendarEvent.revisions,
+      revisionsSentiment: calendarEvent.revisionsSentiment,
+      impliedMove: calendarEvent.impliedMove,
+      lastQuarterSurprise: calendarEvent.lastQuarterSurprise,
+      consensusRevisions: revSummary,
+      keyRisk: calendarEvent.keyRisk
+    };
+  }
+
+  // 2. Fallback to legacy map if present
   const entry = AUTHORITATIVE_EARNINGS_MAP[s] || AUTHORITATIVE_EARNINGS_MAP[cleanTicker];
   if (entry) {
-    const timing = computeEarningsTiming(entry.earningsDate, entry.daysUntilEarnings);
+    const timing = computeEarningsTiming(entry.earningsDate, entry.daysUntilEarnings, true);
     return {
       ...entry,
       daysUntilEarnings: timing.daysUntil,
@@ -995,7 +1025,7 @@ export function getEarningsEstimates(
   }
 
   if (aiEarnings && aiEarnings.earningsDate && aiEarnings.epsEstimate) {
-    const timing = computeEarningsTiming(aiEarnings.earningsDate, aiEarnings.daysUntilEarnings);
+    const timing = computeEarningsTiming(aiEarnings.earningsDate, aiEarnings.daysUntilEarnings, true);
     return {
       earningsDate: timing.displayDate,
       daysUntilEarnings: timing.daysUntil,
@@ -1015,7 +1045,7 @@ export function getEarningsEstimates(
     };
   }
 
-  const timing = computeEarningsTiming('Oct 28, 2026');
+  const timing = computeEarningsTiming('Nov 18, 2026', undefined, true);
   return {
     earningsDate: timing.displayDate,
     daysUntilEarnings: timing.daysUntil,
